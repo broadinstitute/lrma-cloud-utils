@@ -2,37 +2,36 @@ from io import open
 
 from setuptools import find_packages, setup
 
-with open('requirements.txt', 'r') as fh:
-    to_be_installed = [l.rstrip('\n') for l in fh.readlines()]
-
+# following src dir layout according to
+# https://blog.ionelmc.ro/2014/05/25/python-packaging/#the-structure
 version = "0.0.1"
 setup(
     name="lrmaCU",
     version=version,
     description="A python library for interacting with GCS, Cromwell, and Terra",
-    url="https://github.com/broadinstitute/lrma-cloud-utils",
     author="Steve Huang",
     author_email="shuang@broadinstitute.org",
     license="BSD 3-Clause",
     long_description=open("README.md").read(),
-    long_description_content_type="text/markdown",
-
-    python_requires=">=3.7",
-    install_requires=to_be_installed,
+    install_requires="""
+    """.split(
+        "\n"
+    ),
     tests_require=["coverage", "pytest"],
-
+    python_requires=">=3.6",
     packages=find_packages("src"),
     package_dir={"": "src"},
-    include_package_data=True,
-
     classifiers=[
-        "Development Status :: 1 - preAlpha",
+        "Development Status :: 3 - Alpha",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: BSD 3-Clause",
         "Natural Language :: English",
         "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: Implementation :: CPython",
     ],
+    entry_points={"console_scripts": ["lrmaCU=lrmaCU.__main__:main_entry"]},
+    include_package_data=True,
 )

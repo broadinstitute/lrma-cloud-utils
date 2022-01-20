@@ -1,14 +1,3 @@
-isort==4.3.21
-tox
-wheel
-bumpversion
-twine
-black
-flake8
-pylint
-sphinx
-sphinx-rtd-theme
-mypy==0.770
 ansi2html
 firecloud
 google-cloud-storage
