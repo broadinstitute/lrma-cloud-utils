@@ -67,8 +67,8 @@ Below this line begins the project-specific portion of the README that should be
 
 ---
 
-# PROJECT\_NAME 
-\_SHORT\_PROJECT\_DESCRIPTION\_
+# lrmaCU 
+A python library for interacting with GCS, Cromwell, and Terra
 
 Current version: 0.0.1
 

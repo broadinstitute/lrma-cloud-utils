@@ -6,11 +6,11 @@ from setuptools import find_packages, setup
 # https://blog.ionelmc.ro/2014/05/25/python-packaging/#the-structure
 version = "0.0.1"
 setup(
-    name="PROJECT_NAME",
+    name="lrmaCU",
     version=version,
-    description="_SHORT_PROJECT_DESCRIPTION_",
-    author="_AUTHOR_",
-    author_email="_AUTHOR_EMAIL_",
+    description="A python library for interacting with GCS, Cromwell, and Terra",
+    author="Steve Huang",
+    author_email="shuang@broadinstitute.org",
     license="BSD 3-Clause",
     long_description=open("README.md").read(),
     install_requires="""
@@ -32,6 +32,6 @@ setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: Implementation :: CPython",
     ],
-    entry_points={"console_scripts": ["PROJECT_NAME=PROJECT_NAME.__main__:main_entry"]},
+    entry_points={"console_scripts": ["lrmaCU=lrmaCU.__main__:main_entry"]},
     include_package_data=True,
 )
