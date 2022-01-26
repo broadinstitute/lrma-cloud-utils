@@ -97,8 +97,8 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
         set_uuid = formatted_set_table.iloc[i, 0]
         members = members_for_each_set[i]
         try:
-            _fill_in_entity_members(ns, ws, etype=desired_set_type_name, ename=set_uuid,
-                                    member_entity_type=member_entity_type, members=members, operation=operation)
+            fill_in_entity_members(ns, ws, etype=desired_set_type_name, ename=set_uuid,
+                                   member_entity_type=member_entity_type, members=members, operation=operation)
         except FireCloudServerError:
             logger.error(f"Failed to upload membership information for {set_uuid}")
             raise
@@ -129,10 +129,10 @@ def format_set_table_ready_for_upload(set_table: pd.DataFrame,
     return formatted_set_table, members
 
 
-def _fill_in_entity_members(ns: str, ws: str,
-                            etype: str, ename: str,
-                            member_entity_type: str, members: List[str],
-                            operation: MembersOperationType) -> None:
+def fill_in_entity_members(ns: str, ws: str,
+                           etype: str, ename: str,
+                           member_entity_type: str, members: List[str],
+                           operation: MembersOperationType) -> None:
     """
     For a given entity set identified by etype and ename, fill-in it's members
 
@@ -332,9 +332,9 @@ def transfer_set_table(namespace: str,
         set_uuid = ready_for_upload_table.iloc[i, 0]
         members = flat_text_membership[i]
         try:
-            _fill_in_entity_members(namespace, new_workspace,
-                                    etype=desired_new_set_type_name, ename=set_uuid,
-                                    member_entity_type=member_entity_type, members=members, operation=MembersOperationType.RESET)
+            fill_in_entity_members(namespace, new_workspace,
+                                   etype=desired_new_set_type_name, ename=set_uuid,
+                                   member_entity_type=member_entity_type, members=members, operation=MembersOperationType.RESET)
         except FireCloudServerError:
             logger.error(f"Failed to upload membership information for {set_uuid}")
             raise

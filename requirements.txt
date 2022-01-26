@@ -2,6 +2,7 @@ ansi2html
 firecloud
 google-cloud-storage
 jupyter
+natsort
 numpy
 pandas
 pandas-selectable
