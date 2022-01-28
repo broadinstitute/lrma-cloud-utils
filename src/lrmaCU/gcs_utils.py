@@ -1,6 +1,10 @@
 import logging
 import re
+import tempfile
+from pathlib import Path
+from typing import List
 
+import pandas
 from google.cloud import storage
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,33 @@ class GcsPath:
 
     def get_blob(self, client: storage.client.Client) -> storage.Blob:
         return storage.Blob(bucket=client.bucket(self.bucket), name=f'{self.prefix}/{self.file}')
+
+    def download_and_parse_flat_file(self, client: storage.client.Client) -> List[str]:
+        """
+        Download the file as text and do minimal parsing as flat text file
+
+        :param client:
+        :return: a list, one entry per line
+        """
+        return [line for line in self.get_blob(client).download_as_text().split('\n') if line]
+
+    def download_and_parse_csv(self, client: storage.client.Client, header: bool, sep: str) -> pandas.DataFrame:
+        """
+        Download the file and parse as a CSV file.
+
+        :param client:
+        :param header: if true, assumes the first line is the header
+        :param sep: tab or comma
+        :return:
+        """
+        all_lines = [line for line in self.get_blob(client).download_as_text().split('\n') if line]
+        temp = tempfile.NamedTemporaryFile(mode='w+', delete=False)
+        with temp as temp_csv:
+            for l in all_lines:
+                temp_csv.write(f"{l}\n")
+        df = pandas.read_csv(temp.name, sep=sep, header=0 if header else None)
+        Path(temp.name).unlink()  # delete the temporary file
+        return df
 
     def exists(self, client: storage.client.Client) -> bool:
         return self.is_file(client=client) or self.is_emulate_dir(client=client)
