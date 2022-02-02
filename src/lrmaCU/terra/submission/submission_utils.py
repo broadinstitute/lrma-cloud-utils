@@ -276,7 +276,7 @@ class EntityStatuses:
 
 # todo: this check is quite slow, anyway to speed it up?
 def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, etype: str, days_back: int, count: int) \
-        -> dict[str, int]:
+        -> Dict[str, int]:
     """
     Get entities that **repeatedly** failed to be processed by a particular workflow, up to a certain datetime back.
 
