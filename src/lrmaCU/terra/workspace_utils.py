@@ -6,6 +6,28 @@ from ..utils import *
 logger = logging.getLogger(__name__)
 
 
+def get_workspace_attribute(ns: str, ws: str, attribute_name: str):
+    """
+    Get value of an existing attribute.
+
+    :param ns:
+    :param ws:
+    :param attribute_name:
+    :return:
+    """
+    response = fapi.get_workspace(ns, ws)
+    if not response.ok:
+        logger.error(f"Failed to query workspace {ns}/{ws}.")
+        raise FireCloudServerError(response.status_code, response.text)
+
+    attributes = response.json()['workspace']['attributes']
+    if attribute_name not in attributes:
+        logger.error(f"Queried attribute {attribute_name} not set up yet in workspace {ns}/{ws}.")
+        raise KeyError()
+
+    return attributes[attribute_name]
+
+
 def update_workspace_attribute(ns: str, ws: str, attribute_name: str, attribute_value: str) -> None:
     """
     For updating, or making new attribute of a workspace.

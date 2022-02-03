@@ -13,13 +13,17 @@ ROOT_LEVEL_TABLE = 'The table in a workspace that represents the smallest analyz
 
 
 ########################################################################################################################
-def fetch_existing_root_table(ns: str, ws: str, etype: str) -> pd.DataFrame:
+def fetch_existing_root_table(ns: str, ws: str, etype: str, list_type_attributes: List[str] = None) -> pd.DataFrame:
     """
     Getting the ROOT_LEVEL_TABLE.
 
     :param ns:
     :param ws:
     :param etype: e.g. 'flowcell`
+    :param list_type_attributes: a list of attribute names,
+                                 where each of them is assumed to be an attribute that holds a list as value;
+                                 Note that this cannot be list of references to other entities in the workspace,
+                                 i.e. members for a set type, for that, use `fetch_and_format_existing_set_table`
     :return: DataFrame where the first column is named as what you see as the table name on Terra
     """
     response = fapi.get_entities(ns, ws, etype=etype)
@@ -27,11 +31,15 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str) -> pd.DataFrame:
         logger.error(f"Table {etype} doesn't seem to exist in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
 
+    attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
+    if list_type_attributes is not None:
+        for attr in list_type_attributes:
+            attributes[attr] = attributes[attr].apply(lambda d: d['items'])
+
     entities = [e.get('name') for e in response.json()]
     entity_type = [e.get('entityType') for e in response.json()][0]
-    attributes = pd.DataFrame.from_dict([e.get('attributes') for e in response.json()]).sort_index(axis=1).astype('str')
     attributes.insert(0, column=entity_type, value=entities)
-    return attributes.copy(deep=True)
+    return attributes
 
 
 def upload_root_table(ns: str, ws: str, table: pd.DataFrame) -> None:
@@ -231,7 +239,7 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
     response = fapi.get_entities(ns, ws, etype=etype)
 
     entities = pd.Series([e.get('name') for e in response.json()], name=f"entity:{etype}_id")
-    attributes = pd.DataFrame.from_dict([e.get('attributes') for e in response.json()])
+    attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
 
     # re-format the membership column, otherwise uploading will cause problems
     x = attributes[member_column_name].apply(lambda d: [e.get('entityName') for e in d.get('items')])
@@ -307,7 +315,7 @@ def transfer_set_table(namespace: str,
 
     # format
     uuids = [e.get('name') for e in response.json()]
-    attributes_table = pd.DataFrame.from_dict([e.get('attributes') for e in response.json()])
+    attributes_table = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
     attributes_table.insert(0, f'entity:{original_set_type}_id', uuids)
     original_table = attributes_table.copy(deep=True)
 
