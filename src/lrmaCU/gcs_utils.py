@@ -57,8 +57,11 @@ class GcsPath:
         self.prefix = '/'.join(arr[1:-1])
         self.file = arr[-1]
 
+        # absolute path to file, sans bucket name, also guard against empty prefix
+        self.absolute_file_path = f'{self.prefix}/{self.file}' if self.prefix else self.file
+
     def get_blob(self, client: storage.client.Client) -> storage.Blob:
-        return storage.Blob(bucket=client.bucket(self.bucket), name=f'{self.prefix}/{self.file}')
+        return storage.Blob(bucket=client.bucket(self.bucket), name=self.absolute_file_path)
 
     def download_and_parse_flat_file(self, client: storage.client.Client) -> List[str]:
         """
@@ -91,16 +94,15 @@ class GcsPath:
         return self.is_file(client=client) or self.is_emulate_dir(client=client)
 
     def is_file(self, client: storage.client.Client) -> bool:
-        file_name = f'{self.prefix}/{self.file}' if self.prefix else self.file  # guard against empty prefix
-        return storage.Blob(bucket=client.bucket(self.bucket), name=file_name).exists(client)
+        return storage.Blob(bucket=client.bucket(self.bucket), name=self.absolute_file_path).exists(client)
 
     def is_emulate_dir(self, client: storage.client.Client) -> bool:
         if self.is_file(client=client):
             return False
-        return any(True for _ in client.list_blobs(client.bucket(self.bucket), prefix=f'{self.prefix}/{self.file}'))
+        return any(True for _ in client.list_blobs(client.bucket(self.bucket), prefix=self.absolute_file_path))
 
     def size(self, client: storage.client.Client) -> int:
-        blob = storage.Blob(bucket=client.bucket(self.bucket), name=f'{self.prefix}/{self.file}')
+        blob = storage.Blob(bucket=client.bucket(self.bucket), name=self.absolute_file_path)
         if blob.exists(client=client):
             blob.reload()
             return blob.size
