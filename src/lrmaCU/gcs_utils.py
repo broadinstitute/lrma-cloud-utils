@@ -91,7 +91,8 @@ class GcsPath:
         return self.is_file(client=client) or self.is_emulate_dir(client=client)
 
     def is_file(self, client: storage.client.Client) -> bool:
-        return storage.Blob(bucket=client.bucket(self.bucket), name=f'{self.prefix}/{self.file}').exists(client)
+        file_name = f'{self.prefix}/{self.file}' if self.prefix else self.file  # guard against empty prefix
+        return storage.Blob(bucket=client.bucket(self.bucket), name=file_name).exists(client)
 
     def is_emulate_dir(self, client: storage.client.Client) -> bool:
         if self.is_file(client=client):
