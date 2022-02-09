@@ -1,7 +1,10 @@
+import datetime
 import re
 from enum import Enum
 
+import numpy as np
 import pandas as pd
+from dateutil import parser
 from firecloud import api as fapi
 from firecloud.errors import FireCloudServerError
 
@@ -489,3 +492,91 @@ def update_one_list_attribute(ns: str, ws: str,
                      f" attribute {attribute_name},\n"
                      f" attribute values {attribute_values}")
         raise FireCloudServerError(response.status_code, response.text)
+
+
+########################################################################################################################
+def _convert_to_float(e) -> float or None:
+    if e:
+        if pd.isna(e):
+            return np.nan
+        elif e.lower() in ['nan', 'none']:
+            return np.nan
+        else:
+            try:
+                return float(e)
+            except TypeError:
+                logger.error(f"{e} cannot be casted to a floating point number.")
+                raise
+    else:
+        return np.nan
+
+
+def _convert_to_int(e) -> int:
+    f = _convert_to_float(e)
+    return round(f) if np.isnan(f) else np.nan
+
+
+def _convert_date_time(s, timezone):
+    try:
+        t = parser.isoparse(s).astimezone(tz=timezone)
+        return pd.to_datetime(t)
+    except (ValueError, pd.errors.OutOfBoundsDatetime):
+        logger.warning(f"Error when parsing {s} as datetime with {timezone}. "
+                       f"Formatting it to {pd.Timestamp.min}.")
+        return pd.Timestamp.min
+
+
+def format_table_to_appropriate_type(raw_table: pd.DataFrame,
+                                     boolean_columns: List[str] = None,
+                                     categorical_columns: List[str] = None,
+                                     string_type_columns: List[str] = None,
+                                     int_type_columns: List[str] = None,
+                                     float_type_columns: List[str] = None,
+                                     date_time_columns: List[str] = None,
+                                     timezone: datetime.timezone = None) -> pd.DataFrame:
+    """
+    Perform type conversion for a raw DataFrame.
+
+    :param raw_table:
+    :param boolean_columns: note that missing values be converted to False
+    :param categorical_columns:
+    :param string_type_columns:
+    :param int_type_columns:
+    :param float_type_columns:
+    :param date_time_columns:
+    :param timezone: must be provided when date_time_columns is provided
+    :return:
+    """
+
+    if date_time_columns:
+        if not timezone:
+            raise ValueError("Please provide timezone when formatting datetime columns")
+
+    res = raw_table.copy(deep=True)
+    for n in boolean_columns:
+        res[n] = res[n].apply(lambda s: pd.notna(s) and s.lower() == 'true').astype('bool')
+
+    for n in categorical_columns:
+        res[n] = res[n].astype('category')
+
+    for n in string_type_columns:
+        res[n] = res[n].astype('str')
+
+    for n in float_type_columns:
+        try:
+            res[n] = res[n].apply(_convert_to_float).astype('float64')
+        except TypeError:
+            logger.error(f"Error when casting for column {n}.")
+            raise
+
+    for n in int_type_columns:
+        try:
+            res[n] = res[n].apply(_convert_to_int).astype('Int64')
+        except TypeError:
+            logger.error(f"Error when casting for column {n}.")
+            raise
+
+    for n in date_time_columns:
+        res[n] = res[n].apply(lambda s: _convert_date_time(s, timezone))
+
+    return res
