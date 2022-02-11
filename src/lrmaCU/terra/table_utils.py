@@ -513,7 +513,7 @@ def _convert_to_float(e) -> float or None:
 
 def _convert_to_int(e) -> int:
     f = _convert_to_float(e)
-    return round(f) if np.isnan(f) else np.nan
+    return np.nan if np.isnan(f) else round(f)
 
 
 def _convert_date_time(s, timezone):
