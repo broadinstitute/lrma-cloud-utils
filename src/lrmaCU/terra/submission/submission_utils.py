@@ -41,14 +41,25 @@ Example workflow config.
 def change_workflow_config(ns: str, ws: str, workflow_name: str,
                            new_root_entity_type: str = None,
                            new_input_names_and_values: dict = None,
+                           existing_input_names_but_new_values: dict = None,
                            new_branch: str = None) -> dict:
     """
     Supporting common—but currently limited—scenarios where one wants to update a config of a workflow.
 
-    Note that does NOT make any efforts in making sure the new configurations make sense.
+    Note this does NOT make any efforts in making sure the new configurations make sense.
     That is, one could potentially mismatch the workflow with wrong root entities,
     and/or providing non-existent branches.
-    It's the user's responsibility to make sure the input values are correct.
+    It's the user's responsibility to make sure the intended config is correct.
+
+    In particular, there are special rules for
+        * new_input_names_and_values
+        * existing_input_names_but_new_values
+    on keys:
+       they must follow the same naming rules as you see in the Terra GUI.
+       That is, prefix with the variable name with the value in the first column of the corresponding row, and a ".".
+    on values:
+       array-like values must be pre-formatted into a single string in a way similar to the following:
+         '[\"' + '\",\"'.join(array) + '\"]'
 
     The old config is returned, in case this is a one-time change and one wants to immediately revert back
     once something is done with the new config (e.g. run an one-off analysis).
@@ -58,12 +69,14 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     :param workflow_name:
     :param new_root_entity_type: when one wants to re-configure a workflow's root entity
     :param new_input_names_and_values: when one wants to re-configure some input values, and/or add new input values
+    :param existing_input_names_but_new_values: input names exist, but take on new value
     :param new_branch: when one wants to switch to a different branch, where supposedly the workflow is updated.
     :return: current config before the update
     """
     if new_root_entity_type is None \
             and new_input_names_and_values is None \
-            and new_branch is None:
+            and new_branch is None \
+            and existing_input_names_but_new_values is None:
         raise ValueError(f"Requesting to change config of workflow: {workflow_name}, but not changing anything.")
 
     response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
@@ -75,15 +88,22 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     updated = copy.deepcopy(current_config)
     if new_root_entity_type is not None:
         updated = _update_config(updated, {'rootEntityType': new_root_entity_type})
-    if new_input_names_and_values is not None:
-        updated_inputs = copy.deepcopy(updated['inputs'])
-        updated_inputs.update(new_input_names_and_values)
-        updated = _update_config(updated, {'inputs': updated_inputs})
+
     if new_branch is not None:
         updated_wdl_version = copy.deepcopy(updated['methodRepoMethod'])
         updated_wdl_version['methodVersion'] = new_branch
         updated_wdl_version['methodUri'] = '/'.join(updated_wdl_version['methodUri'].split('/')[:-1]) + '/' + new_branch
         updated = _update_config(updated, {'methodRepoMethod': updated_wdl_version})
+
+    if new_input_names_and_values is not None:
+        updated_inputs = copy.deepcopy(updated['inputs'])
+        updated_inputs.update(new_input_names_and_values)
+        updated = _update_config(updated, {'inputs': updated_inputs})
+    if existing_input_names_but_new_values is not None:
+        updated_inputs = copy.deepcopy(updated['inputs'])
+        updated_inputs.update(existing_input_names_but_new_values)
+        updated = _update_config(updated, {'inputs': updated_inputs})
+
     updated['methodConfigVersion'] = updated['methodConfigVersion'] + 1  # don't forget this
 
     response = fapi.update_workspace_config(ns, ws, ns,
@@ -95,7 +115,7 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     # validate, but unsure how reliable this is
     response = fapi.validate_config(ns, ws, ns, workflow_name)
     if not response.ok:
-        logger.error(f"The config for the workflow {ns}/{ws}:{workflow_name} is updated to doesn't validate."
+        logger.error(f"The config for the workflow {ns}/{ws}:{workflow_name} is updated but doesn't validate."
                      f" Manual intervention needed.")
         raise FireCloudServerError(response.status_code, response.text)
 
