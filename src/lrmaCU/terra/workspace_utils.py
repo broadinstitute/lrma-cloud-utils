@@ -6,6 +6,17 @@ from ..utils import *
 logger = logging.getLogger(__name__)
 
 
+def get_workspace_bucket(ns: str, ws: str) -> str:
+    """
+    Get bucket (starting with fc-) attached to the workspace
+
+    :param ns:
+    :param ws:
+    :return:
+    """
+    return _query_workspace(ns, ws)['bucketName']
+
+
 def get_workspace_attribute(ns: str, ws: str, attribute_name: str):
     """
     Get value of an existing attribute.
@@ -15,12 +26,7 @@ def get_workspace_attribute(ns: str, ws: str, attribute_name: str):
     :param attribute_name:
     :return:
     """
-    response = fapi.get_workspace(ns, ws)
-    if not response.ok:
-        logger.error(f"Failed to query workspace {ns}/{ws}.")
-        raise FireCloudServerError(response.status_code, response.text)
-
-    attributes = response.json()['workspace']['attributes']
+    attributes = _query_workspace(ns, ws)['attributes']
     if attribute_name not in attributes:
         logger.error(f"Queried attribute {attribute_name} not set up yet in workspace {ns}/{ws}.")
         raise KeyError()
@@ -72,3 +78,12 @@ def remove_workspace_attribute(ns: str, ws: str, attribute_name: str) -> None:
     if not response.ok:
         logger.error(f"Failed to add/update attribute {attribute_name} for workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
+
+
+########################################################################################################################
+def _query_workspace(ns, ws):
+    response = fapi.get_workspace(ns, ws)
+    if not response.ok:
+        logger.error(f"Failed to query workspace {ns}/{ws}.")
+        raise FireCloudServerError(response.status_code, response.text)
+    return response.json()['workspace']
