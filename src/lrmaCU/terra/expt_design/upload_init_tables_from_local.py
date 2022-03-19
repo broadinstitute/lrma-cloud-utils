@@ -1,12 +1,12 @@
-import itertools
 import re
 from pathlib import Path
 from typing import Dict, List
 
+import itertools
 import pandas as pd
 
-from src.terra.expt_design import definitions
-from src.terra.expt_design.definitions import TablesReadyForUpload, SequencingTechnology, Flowcell, Sample
+from . import definitions
+from .definitions import TablesReadyForUpload, SequencingTechnology, Flowcell, Sample
 
 SELECTION_CRITERION = ['tech', 'tissue', 'extraction']
 SELECTION_CRITERIA = list(itertools.combinations(SELECTION_CRITERION, 2))

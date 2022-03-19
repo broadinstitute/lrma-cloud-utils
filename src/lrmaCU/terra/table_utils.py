@@ -49,12 +49,20 @@ def upload_root_table(ns: str, ws: str, table: pd.DataFrame) -> None:
     """
     Upload a ROOT_LEVEL_TABLE to Terra ns/ws. Most useful when initializing a workspace.
 
-    The pandas DataFrame is assumed to be correctly formatted,
-    i.e. the 1st column's name conforms to the naming convention of 'entity:{blah}_id'.
+    Special note on the format of the input `table:
+    The pandas DataFrame is assumed to be
+        1) either correctly formatted,
+            i.e. the 1st column's name conforms to the naming convention of 'entity:{blah}_id'.
+        2) or 1st column's name will be the name of the table,
+            i.e. if the 1st column's 'blah', the table will appear as 'blah' on Terra
     """
     n = table.columns.tolist()[0]
     if not (n.startswith('entity:') and n.endswith('_id')):
-        raise ValueError(f"Input table's 1st column name doesn't follow Terra's requirements: {n}")
+        logger.warning(f"Input table's 1st column name doesn't follow Terra's requirements: {n}.\n"
+                       f"We'll assume the 1st column ({table.columns[0]}) is how you want to name the table.\n"
+                       f"This means, if you intend to append to an existing table, whose name isn't the same as the 1st"
+                       f"column of this input table, it WILL NOT be appended. "
+                       f"It may be appened to the wrong table by accident, or create another table.",)
     response = fapi.upload_entities(namespace=ns,
                                     workspace=ws,
                                     entity_data=table.to_csv(sep='\t', index=False),
