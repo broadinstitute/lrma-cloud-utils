@@ -125,8 +125,7 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
 
 def format_set_table_ready_for_upload(set_table: pd.DataFrame,
                                       current_set_type_name: str, desired_set_type_name: str,
-                                      membership_col_name: str) \
-        -> (pd.DataFrame, List[List[str]]):
+                                      membership_col_name: str) -> (pd.DataFrame, List[List[str]]):
     """
     Given an un-formatted set table, format it in a way that's ready to be accepted by Terra API.
 
@@ -249,7 +248,7 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
     # fetch and keep all attributes in original table
     response = fapi.get_entities(ns, ws, etype=etype)
 
-    entities = pd.Series([e.get('name') for e in response.json()], name=f"entity:{etype}_id")
+    entities = pd.Series([e.get('name') for e in response.json()], name=etype)
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
 
     # re-format the membership column, otherwise uploading will cause problems
@@ -297,7 +296,9 @@ def _resolve_member_type(membership_col_name: str) -> str:
 def transfer_set_table(namespace: str,
                        original_workspace: str, new_workspace: str,
                        original_set_type: str, membership_col_name: str,
-                       desired_new_set_type_name: str) -> None:
+                       desired_new_set_type_name: str,
+                       columns_to_keep: List[str] = None,
+                       columns_that_are_lists: List[str] = None) -> None:
     """
     Transfer set-level table from one workspace to another workspace.
 
@@ -314,49 +315,25 @@ def transfer_set_table(namespace: str,
     :param original_set_type:
     :param membership_col_name:
     :param desired_new_set_type_name:
+    :param columns_to_keep:
+    :param columns_that_are_lists: name of the columns where entries are lists rather than simple types
     :return:
     """
 
-    response = fapi.get_entities(namespace, original_workspace, etype=original_set_type)
-    if not response.ok:
-        logger.error(f"Failed to retrieve set entities {original_set_type} from workspace"
-                     f" {namespace}/{original_workspace}.")
-        raise FireCloudServerError(response.status_code, response.text)
-    logger.info(f"Original set table {original_set_type} fetched")
+    if columns_to_keep is not None and len(columns_to_keep) == 0:
+        logger.warning("Only membership column will be transferred")
 
-    # format
-    uuids = [e.get('name') for e in response.json()]
-    attributes_table = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
-    attributes_table.insert(0, f'entity:{original_set_type}_id', uuids)
-    original_table = attributes_table.copy(deep=True)
+    original_table = fetch_and_format_existing_set_table(namespace, original_workspace,
+                                                         original_set_type, membership_col_name)
 
-    ready_for_upload_table, members_list = format_set_table_ready_for_upload(
-        original_table, current_set_type_name=original_set_type,
-        desired_set_type_name=desired_new_set_type_name, membership_col_name=membership_col_name)
+    columns_to_transfer = [original_set_type, membership_col_name]
+    if columns_to_keep is not None and len(columns_to_keep) > 0:
+        columns_to_transfer.extend(columns_to_keep)
+    table_to_transfer = original_table[columns_to_transfer]
 
-    # everything except membership
-    response = fapi.upload_entities(namespace, new_workspace,
-                                    entity_data=ready_for_upload_table.to_csv(sep='\t', index=False),
-                                    model='flexible')
-    if not response.ok:
-        logger.error(f"Failed to copy over set-level entities {desired_new_set_type_name},"
-                     f" even before member entities are filled in.")
-        raise FireCloudServerError(response.status_code, response.text)
-    logger.info("uploaded set level table, next fill-in members...")
-
-    # update each set with its members
-    flat_text_membership = list(map(lambda dl: [d.get('entityName') for d in dl.get('items')], members_list))
-    member_entity_type = _resolve_member_type(membership_col_name)
-    for i in range(len(flat_text_membership)):
-        set_uuid = ready_for_upload_table.iloc[i, 0]
-        members = flat_text_membership[i]
-        try:
-            fill_in_entity_members(namespace, new_workspace,
-                                   etype=desired_new_set_type_name, ename=set_uuid,
-                                   member_entity_type=member_entity_type, members=members, operation=MembersOperationType.RESET)
-        except FireCloudServerError:
-            logger.error(f"Failed to upload membership information for {set_uuid}")
-            raise
+    upload_set_table(namespace, new_workspace, table_to_transfer,
+                     original_set_type, desired_new_set_type_name,
+                     membership_col_name, membership_col_name, MembersOperationType.RESET)
 
 
 ########################################################################################################################
@@ -503,6 +480,20 @@ def update_one_list_attribute(ns: str, ws: str,
 
 
 ########################################################################################################################
+def _format_list_type_column(table: pd.DataFrame, list_type_attributes: List[str]) -> pd.DataFrame:
+    """
+    For a dataframe retrieved from Terra, format the attributes where values for an entity is a list, accordingly.
+
+    :param table: table just retrieved from Terra
+    :param list_type_attributes: list of such attribute names
+    :return: corrected formatted table
+    """
+    formatted = table.copy(deep=True)
+    for attr in list_type_attributes:
+        formatted[attr] = table[attr].apply(lambda d: d['items'])
+    return formatted
+
+
 def _convert_to_float(e) -> float or None:
     if e:
         if pd.isna(e):
