@@ -28,8 +28,9 @@ def get_workspace_attribute(ns: str, ws: str, attribute_name: str):
     """
     attributes = _query_workspace(ns, ws)['attributes']
     if attribute_name not in attributes:
-        logger.error(f"Queried attribute {attribute_name} not set up yet in workspace {ns}/{ws}.")
-        raise KeyError()
+        msg = f"Queried attribute {attribute_name} not set up yet in workspace {ns}/{ws}."
+        logger.error(msg)
+        raise KeyError(msg)
 
     return attributes[attribute_name]
 
@@ -61,7 +62,7 @@ def update_workspace_attribute(ns: str, ws: str, attribute_name: str, attribute_
 
 def remove_workspace_attribute(ns: str, ws: str, attribute_name: str) -> None:
     """
-    Remove workspace attribute, e.g. workspace level data.
+    Remove workspace attribute.
 
     :param ns:
     :param ws:

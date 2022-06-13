@@ -26,7 +26,12 @@ def get_dict_depth(d: dict, level: int) -> int:
     return max(cls)
 
 
-def is_contiguous(arr: list) -> bool:
+def is_contiguous(arr: List[int]) -> bool:
+    """
+    Check if a list of integers is contiguous
+    :param arr: an array of integers
+    :return:
+    """
     arr_shift = arr[1:]
     arr_shift.append(arr[-1]+1)
     return all(1 == (a_i - b_i) for a_i, b_i in zip(arr_shift, arr))

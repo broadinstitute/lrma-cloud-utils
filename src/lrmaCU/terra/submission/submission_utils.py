@@ -15,7 +15,6 @@ from ..table_utils import add_one_set
 
 logger = logging.getLogger(__name__)
 
-
 local_tz = pytz.timezone('US/Eastern')
 
 PRACTICAL_DAYS_LOOKBACK = 7  # made an implicit assumption: 7 days back is the max

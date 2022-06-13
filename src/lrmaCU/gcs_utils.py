@@ -42,9 +42,9 @@ class GcsPath:
 
     Offering simplistic way of
         * checking if the paths exists, and if exists,
-        * represents a file or
-        * emulates a 'directory'.
-        * if a file, getting it's size and/or downloading the file as blob
+        * does it represent a file or
+        * does it emulate a 'directory'; and if it represents a file
+        * getting its size and/or downloading the file as flat/tsv file
     """
 
     def __init__(self, gs_path: str):
