@@ -5,10 +5,8 @@ jupyter
 natsort
 numpy
 pandas
-pandas-selectable
 papermill
 python-dateutil
 pytz
-requests
 sendgrid
 termcolor
