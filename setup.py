@@ -7,7 +7,7 @@ with open('requirements.txt', 'r') as fh:
 
 version = "0.0.1"
 setup(
-    name="lrmaCU",
+    name="lrmaCUX",
     version=version,
     description="A python library for interacting with GCS, Cromwell, and Terra",
     url="https://github.com/broadinstitute/lrma-cloud-utils",
@@ -21,7 +21,10 @@ setup(
     install_requires=to_be_installed,
     tests_require=["coverage", "pytest"],
 
-    packages=find_packages("src"),
+    packages=find_packages(
+        where="src",
+        include=['lrmaCU*', 'smrtlink_parser*']
+    ),
     package_dir={"": "src"},
     include_package_data=True,
 
