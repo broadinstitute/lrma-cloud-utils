@@ -1,6 +1,6 @@
 from typing import List
 import logging
-from src.parser.xml_utils import *
+from .xml_utils import *
 
 
 class CCS_XML:
