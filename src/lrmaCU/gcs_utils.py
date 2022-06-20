@@ -72,7 +72,8 @@ class GcsPath:
         """
         return [line for line in self.get_blob(client).download_as_text().split('\n') if line]
 
-    def download_and_parse_csv(self, client: storage.client.Client, header: bool, sep: str) -> pandas.DataFrame:
+    def download_and_parse_csv(self, client: storage.client.Client, header: bool, sep: str,
+                               parse_as_str: bool = False) -> pandas.DataFrame:
         """
         Download the file and parse as a CSV file.
 
@@ -86,7 +87,10 @@ class GcsPath:
         with temp as temp_csv:
             for l in all_lines:
                 temp_csv.write(f"{l}\n")
-        df = pandas.read_csv(temp.name, sep=sep, header=0 if header else None)
+        if parse_as_str:
+            df = pandas.read_csv(temp.name, sep=sep, header=0 if header else None, dtype='str')
+        else:
+            df = pandas.read_csv(temp.name, sep=sep, header=0 if header else None)
         Path(temp.name).unlink()  # delete the temporary file
         return df
 
