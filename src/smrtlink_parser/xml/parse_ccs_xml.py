@@ -12,6 +12,8 @@ class CCS_XML:
     external_resources_keychain = ['pbds:ConsensusReadSet', 'pbbase:ExternalResources', 'pbbase:ExternalResource']
     collections_metadata_keychain = ['pbds:ConsensusReadSet', 'pbds:DataSetMetadata',
                                      'Collections', 'CollectionMetadata']
+    collections_metadata_keychain_alt_1 = ['pbds:ConsensusReadSet', 'pbds:DataSetMetadata',
+                                     'pbmeta:Collections', 'pbmeta:CollectionMetadata']
 
     def __init__(self, xml_path: str, storate_client: google.cloud.storage.client.Client = None):
         """
@@ -86,7 +88,11 @@ class CCS_XML:
         For engineering and debugging purpose, few reasons to call directly.
         :return:
         """
-        return get_value(self.contents, self.collections_metadata_keychain)
+        try:
+            res = get_value(self.contents, self.collections_metadata_keychain)
+        except KeyError:
+            res = get_value(self.contents, self.collections_metadata_keychain_alt_1)
+        return res
 
     def get_instrument_id(self) -> str:
         return self.collection_metadata['@InstrumentId']
