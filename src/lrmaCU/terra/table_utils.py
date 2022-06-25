@@ -16,7 +16,9 @@ ROOT_LEVEL_TABLE = 'The table in a workspace that represents the smallest analyz
 
 
 ########################################################################################################################
-def fetch_existing_root_table(ns: str, ws: str, etype: str, list_type_attributes: List[str] = None) -> pd.DataFrame:
+def fetch_existing_root_table(ns: str, ws: str, etype: str,
+                              list_type_attributes: List[str] = None, list_attribute_compact_str_delimiter: str = ',') \
+        -> pd.DataFrame:
     """
     Getting the ROOT_LEVEL_TABLE.
 
@@ -25,8 +27,12 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str, list_type_attributes
     :param etype: e.g. 'flowcell`
     :param list_type_attributes: a list of attribute names,
                                  where each of them is assumed to be an attribute that holds a list as value;
+                                 each list of will be compacted into a string, using the provided delimiter.
+                                 Missing values will be parsed into 'nan'.
                                  Note that this cannot be list of references to other entities in the workspace,
                                  i.e. members for a set type, for that, use `fetch_and_format_existing_set_table`
+    :param list_attribute_compact_str_delimiter: for an attribute that is a list, the list is compacted into a string,
+                                 delimited by the provided delimiter
     :return: DataFrame where the first column is named as what you see as the table name on Terra
     """
     response = fapi.get_entities(ns, ws, etype=etype)
@@ -37,7 +43,7 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str, list_type_attributes
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
     if list_type_attributes is not None:
         for attr in list_type_attributes:
-            attributes[attr] = attributes[attr].apply(lambda d: d['items'])
+            attributes[attr] = attributes[attr].apply(lambda x: 'nan' if pd.isna(x) else delim.join(x['items']))
 
     entities = [e.get('name') for e in response.json()]
     entity_type = [e.get('entityType') for e in response.json()][0]
