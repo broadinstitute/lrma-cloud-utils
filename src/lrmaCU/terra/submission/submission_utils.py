@@ -310,7 +310,7 @@ def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, etype: str, 
 
     entity_statuses = get_entities_analyzed_by_workflow(ns, ws, workflow, days_back, etype)
 
-    res = dict[str, int]()
+    res = dict()
     for e, info in entity_statuses.items():
         if EntityStatuses.FAIL_STATUS == info.latest_status and info.fail_cnt >= count:
             res[e] = info.fail_cnt
