@@ -41,9 +41,12 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
         raise FireCloudServerError(response.status_code, response.text)
 
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
+    delim = list_attribute_compact_str_delimiter
     if list_type_attributes is not None:
         for attr in list_type_attributes:
-            attributes[attr] = attributes[attr].apply(lambda x: 'nan' if pd.isna(x) else delim.join(x['items']))
+            attributes[attr] = \
+                attributes[attr].apply(lambda x:
+                                       'nan' if pd.isna(x) else delim.join([str(e) for e in x['items']]))
 
     entities = [e.get('name') for e in response.json()]
     entity_type = [e.get('entityType') for e in response.json()][0]
