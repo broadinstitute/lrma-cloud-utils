@@ -40,6 +40,9 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
         logger.error(f"Table {etype} doesn't seem to exist in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
 
+    if 0 == len(response.json()):
+        raise KeyError(f"The entity type you requested ({etype}) doesn't exist in {ns}/{ws}")
+
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
     delim = list_attribute_compact_str_delimiter
     if list_type_attributes is not None:
