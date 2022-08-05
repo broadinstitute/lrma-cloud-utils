@@ -45,6 +45,7 @@ class GcsPath:
         * does it represent a file or
         * does it emulate a 'directory'; and if it represents a file
         * getting its size and/or downloading the file as flat/tsv file
+        * deleting the file, or the files in the directory
     """
 
     def __init__(self, gs_path: str):
@@ -112,3 +113,30 @@ class GcsPath:
             return blob.size
         else:
             return 0
+
+    def delete(self, client: storage.client.Client, recursive: bool, error_on_nonexistent: bool = True) -> None:
+        """
+
+        :param client:
+        :param recursive: if False, only the files directly under that directory will be deleted
+        :param error_on_nonexistent: to error or not, if the file doesn't exist; no effect when path emulates a folder
+        :return:
+        """
+        if not self.exists(client):
+            if error_on_nonexistent:
+                raise FileNotFoundError(f"{self.absolute_file_path} does not exist.")
+            else:
+                logger.warning(f"{self.absolute_file_path} does not exist.")
+                return
+        if self.is_file(client):
+            logger.warning(f"Deleting {self.absolute_file_path}")
+            self.get_blob(client).delete(client)
+        elif self.is_emulate_dir(client):
+            p = self.absolute_file_path if self.absolute_file_path.endswith('/') else self.absolute_file_path + '/'
+            if recursive:
+                for f in client.list_blobs(client.bucket(self.bucket), prefix=p):
+                    storage.Blob(bucket=client.bucket(self.bucket), name=f.name).delete(client)
+            else:
+                # using delimiter limits depths to 1, i.e. files directly under
+                for f in client.list_blobs(client.bucket(self.bucket), prefix=p, delimiter='/'):
+                    storage.Blob(bucket=client.bucket(self.bucket), name=f.name).delete(client)

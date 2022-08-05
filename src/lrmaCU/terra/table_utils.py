@@ -8,7 +8,10 @@ from dateutil import parser
 from firecloud import api as fapi
 from firecloud.errors import FireCloudServerError
 
+from google.cloud import storage
+
 from ..utils import *
+from ..gcs_utils import GcsPath
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +424,36 @@ def delete_attribute(ns: str, ws: str, etype: str, ename: str,
     if not response.ok:
         logger.error(f"Failed to remove attribute {attribute_name} from {etype} {ename}.")
         raise FireCloudServerError(response.status_code, response.text)
+
+
+def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
+                                     attribute_name: str,
+                                     storage_client: storage.Client,
+                                     dry_run: bool = False) -> None:
+    """
+    Delete a requested attribute of the requested entity. And if it's a cloud storage, delete the associate file.
+
+    THIS IS A DANGEROUS OPERATION. DO IT VERY, VERY CAREFULLY.
+
+    Assumes attribute is a plain string and starts with gs://.
+
+    :param ns: namespace
+    :param ws: workspace
+    :param etype: entity type
+    :param ename: entity uuid
+    :param attribute_name: name of the attribute to delete
+    :param storage_client:
+    :param dry_run: safe measure, you may want to see the command before actually committing the action.
+    """
+
+    df = fetch_existing_root_table(ns, ws, etype)  # it doesn't matter if it's a root type or not
+    attr = str(df.loc[df.iloc[:, 0] == ename, attribute_name])
+    assert isinstance(attr, str), f"The requested attribute ({attribute_name}) is not a path-type."
+    assert attr.startswith('gs://'), f"The requested attribute ({attribute_name}) is not a storage path."
+
+    delete_attribute(ns, ws, etype, ename, attribute_name, dry_run)
+    if not dry_run:
+        GcsPath(attr).delete(storage_client, recursive=True)
 
 
 def update_one_list_attribute(ns: str, ws: str,

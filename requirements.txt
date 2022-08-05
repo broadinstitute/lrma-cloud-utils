@@ -1,6 +1,7 @@
 ansi2html
 firecloud
 google-cloud-storage
+gcsfs
 jupyter
 natsort
 numpy

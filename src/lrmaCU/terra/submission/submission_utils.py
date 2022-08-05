@@ -168,17 +168,17 @@ def _update_config(old_config: dict, new_config: dict) -> dict:
 
 def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str], use_callcache: bool,
                          batch_type_name: str = None, expression: str = None,
-                         days_back: int = None, count: int = None) -> None:
+                         days_back: int = None, count: int = None, force: bool = False) -> None:
     """
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
 
-    One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
+    One can also specify, for entities that fail to be analyzed with the requested workflow repeatedly,
     whether to go ahead or not, as one may want to manually checkout what's wrong there.
     By not providing the two arguments, you are signaling this isn't necessary.
     Check get_repeatedly_failed_entities(...)
 
     When there are multiple entities given in enames, one can specify an expression for batch submission.
-    For example, say etype is 'sample', and enames are samples to be analysed with workflow BLAH.
+    For example, say etype is 'sample', and enames are samples to be analyzed with workflow BLAH.
     BLAH is configured in a way such that its root entity is 'sample', i.e. same as etype.
     In this case, "expression" can simply be "this.samples".
     This is intuitive if one has configured workflows on Terra whose root entity is "sample_set", but some inputs
@@ -194,11 +194,13 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                        Note that this will create a dummy set, for the purpose of batch submission.
     :param days_back: how many day back to check for repeated failures
     :param count: repeated failure threshold, >= which it won't be re-submitted.
+    :param force: if True, forcefully launch analysis on every entity provided except those being analyzed at the moment
+                  by skipping the check if the entity has been successfully analyzed, or caused repeated failures
     :return:
     """
     if 1 == len(enames) or expression is None:
         failures = dict()
-        for e in _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count):
+        for e in _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count, force):
             response = fapi.create_submission(wnamespace=ns, workspace=ws, cnamespace=ns,
                                               config=workflow_name,
                                               entity=e,
@@ -219,7 +221,7 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
         if batch_type_name is None:
             raise ValueError("When submitting in batching mode, batch_type_name must be specified")
 
-        analyzable_entities = _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count)
+        analyzable_entities = _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count, force)
         if 0 == len(analyzable_entities):
             logger.warning(f"No analyzable entities in\n  {enames}")
             return
@@ -456,11 +458,11 @@ def get_entities_analyzed_by_workflow(ns: str, ws: str, workflow: str, days_back
 
 
 def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str],
-                         days_back: int or None, count: int or None) -> List[str]:
+                         days_back: int or None, count: int or None, force: bool = False) -> List[str]:
     """
     Given a homogeneous (in terms of etype) list of entities, return a sub-list of them who are analyzable now.
 
-    One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
+    One can also specify, for entities that fail to be analyze with the requested workflow repeatedly,
     whether to go ahead or not, as one may want to manually checkout what's wrong there.
     By not providing the two arguments, you are signaling this isn't necessary.
     Check get_repeatedly_failed_entities(...)
@@ -477,15 +479,24 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param enames: list of entity names (assumed to have the same etype)
     :param days_back
     :param count
+    :param force: if True, forcefully launch analysis on every entity provided except those being analyzed at the moment
+                  by skipping the check if the entity has been successfully analyzed, or caused repeated failures
     :return: list of running jobs (as dict's) optionally filtered
     """
+
+    # get statuses of all entities of the type analyzed, and being analyzed, by the requested workflow
     entity_statuses = get_entities_analyzed_by_workflow(ns, ws, workflow_name, PRACTICAL_DAYS_LOOKBACK, etype)
+
+    # get the entities that are being analyzed at the moment, and remove from pool
     running = {e for e, statuses in entity_statuses.items() if statuses.latest_status == EntityStatuses.RUNN_STATUS}
-
     candidates = set(enames) - running
+    if force:
+        return list(candidates)
 
+    # entities who have not been touched at all by the workflow; note this filters away entities that were "success"
     fresh = candidates.difference(set(entity_statuses.keys()))
 
+    # and then remove those repeated failures
     failed = {e for e, statuses in entity_statuses.items() if statuses.latest_status == EntityStatuses.FAIL_STATUS}
     redo = candidates.intersection(failed)
 
