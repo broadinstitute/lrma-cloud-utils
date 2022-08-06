@@ -429,6 +429,7 @@ def delete_attribute(ns: str, ws: str, etype: str, ename: str,
 def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
                                      attribute_name: str,
                                      storage_client: storage.Client,
+                                     error_on_nonexistent: bool = True,
                                      dry_run: bool = False) -> None:
     """
     Delete a requested attribute of the requested entity. And if it's a cloud storage, delete the associate file.
@@ -447,13 +448,15 @@ def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
     """
 
     df = fetch_existing_root_table(ns, ws, etype)  # it doesn't matter if it's a root type or not
-    attr = str(df.loc[df.iloc[:, 0] == ename, attribute_name])
-    assert isinstance(attr, str), f"The requested attribute ({attribute_name}) is not a path-type."
-    assert attr.startswith('gs://'), f"The requested attribute ({attribute_name}) is not a storage path."
+    row = df.loc[df.iloc[:, 0] == ename, :]
+    assert len(row) == 1, f"Requested entity {ename} of type {etype} either doesn't exist, or has multiple entries"
+    attr = row[attribute_name].iloc[0]
+    assert isinstance(attr, str), f"The requested attribute ({attribute_name}) is not a path-type.\n{attr}"
+    assert attr.startswith('gs://'), f"The requested attribute ({attribute_name}) is not a storage path.\n{attr}"
 
     delete_attribute(ns, ws, etype, ename, attribute_name, dry_run)
     if not dry_run:
-        GcsPath(attr).delete(storage_client, recursive=True)
+        GcsPath(attr).delete(storage_client, recursive=True, error_on_nonexistent=error_on_nonexistent)
 
 
 def update_one_list_attribute(ns: str, ws: str,
