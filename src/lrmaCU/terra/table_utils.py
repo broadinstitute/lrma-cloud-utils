@@ -598,7 +598,9 @@ def format_table_to_appropriate_type(raw_table: pd.DataFrame,
 
     res = raw_table.copy(deep=True)
     for n in boolean_columns:
-        res[n] = res[n].apply(lambda s: pd.notna(s) and s.lower() == 'true').astype('bool')
+        if res[n].dtype == np.bool_:
+            continue
+        res[n] = res[n].apply(lambda s: pd.notna(s) and str(s).lower() == 'true').astype('bool')
 
     for n in categorical_columns:
         res[n] = res[n].astype('category')
@@ -608,19 +610,19 @@ def format_table_to_appropriate_type(raw_table: pd.DataFrame,
 
     for n in float_type_columns:
         try:
-            res[n] = res[n].apply(_convert_to_float).astype('float64')
+            res[n] = res[n].astype(str).apply(_convert_to_float).astype('float64')
         except TypeError:
             logger.error(f"Error when casting for column {n}.")
             raise
 
     for n in int_type_columns:
         try:
-            res[n] = res[n].apply(_convert_to_int).astype('Int64')
+            res[n] = res[n].astype(str).apply(_convert_to_int).astype('Int64')
         except TypeError:
             logger.error(f"Error when casting for column {n}.")
             raise
 
     for n in date_time_columns:
-        res[n] = res[n].apply(lambda s: _convert_date_time(s, timezone))
+        res[n] = res[n].astype(str).apply(lambda s: _convert_date_time(s, timezone))
 
     return res
