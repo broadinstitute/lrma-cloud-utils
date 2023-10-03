@@ -5,13 +5,11 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 from dateutil import parser
-from firecloud import api as fapi
 from firecloud.errors import FireCloudServerError
-
 from google.cloud import storage
 
-from ..utils import *
-from ..gcs_utils import GcsPath
+from lrmaCU.gcs_utils import GcsPath
+from lrmaCU.utils import *
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +18,9 @@ ROOT_LEVEL_TABLE = 'The table in a workspace that represents the smallest analyz
 
 ########################################################################################################################
 def fetch_existing_root_table(ns: str, ws: str, etype: str,
-                              list_type_attributes: List[str] = None, list_attribute_compact_str_delimiter: str = ',') \
+                              list_type_attributes: List[str] = None,
+                              list_attribute_compact_str_delimiter: str = ',',
+                              max_attempts: int = 2) \
         -> pd.DataFrame:
     """
     Getting the ROOT_LEVEL_TABLE.
@@ -36,9 +36,11 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
                                  i.e. members for a set type, for that, use `fetch_and_format_existing_set_table`
     :param list_attribute_compact_str_delimiter: for an attribute that is a list, the list is compacted into a string,
                                  delimited by the provided delimiter
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return: DataFrame where the first column is named as what you see as the table name on Terra
     """
-    response = fapi.get_entities(ns, ws, etype=etype)
+    response = retry_fiss_api_call('get_entities', max_attempts,
+                                   ns, ws, etype=etype)
     if not response.ok:
         logger.error(f"Table {etype} doesn't seem to exist in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -60,7 +62,8 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
     return attributes
 
 
-def upload_root_table(ns: str, ws: str, table: pd.DataFrame) -> None:
+def upload_root_table(ns: str, ws: str, table: pd.DataFrame,
+                      max_attempts: int = 2) -> None:
     """
     Upload a ROOT_LEVEL_TABLE to Terra ns/ws. Most useful when initializing a workspace.
 
@@ -78,10 +81,11 @@ def upload_root_table(ns: str, ws: str, table: pd.DataFrame) -> None:
                        f"This means, if you intend to append to an existing table, whose name isn't the same as the 1st"
                        f"column of this input table, it WILL NOT be appended. "
                        f"It may be appened to the wrong table by accident, or create another table.",)
-    response = fapi.upload_entities(namespace=ns,
-                                    workspace=ws,
-                                    entity_data=table.to_csv(sep='\t', index=False),
-                                    model='flexible')
+    response = retry_fiss_api_call('upload_entities', max_attempts,
+                                   namespace=ns,
+                                   workspace=ws,
+                                   entity_data=table.to_csv(sep='\t', index=False),
+                                   model='flexible')
     if not response.ok:
         logger.error(f"Failed to upload root level table {n} to workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -89,14 +93,15 @@ def upload_root_table(ns: str, ws: str, table: pd.DataFrame) -> None:
 
 ########################################################################################################################
 class MembersOperationType(Enum):
-    RESET = 1  # remove old members and fill with with new members
+    RESET = 1  # remove old members and fill with new members
     MERGE = 2  # just add in new members that weren't there
 
 
 def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
                      current_set_type_name: str, desired_set_type_name: str,
                      current_membership_col_name: str, desired_membership_col_name: str,
-                     operation: MembersOperationType) -> None:
+                     operation: MembersOperationType,
+                     max_attempts: int = 2) -> None:
     """
     Upload set level table to Terra ns/ws.
 
@@ -109,6 +114,7 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
     :param current_membership_col_name:
     :param desired_membership_col_name:
     :param operation: whether old members list (if any) needs to be reset, or just add new ones.
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
 
@@ -117,9 +123,10 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
                                           current_membership_col_name)
 
     # upload set table, except membership column
-    response = fapi.upload_entities(namespace=ns, workspace=ws,
-                                    entity_data=formatted_set_table.to_csv(sep='\t', index=False),
-                                    model='flexible')
+    response = retry_fiss_api_call('upload_entities', max_attempts,
+                                   namespace=ns, workspace=ws,
+                                   entity_data=formatted_set_table.to_csv(sep='\t', index=False),
+                                   model='flexible')
     if not response.ok:
         logger.error(f"Failed to upload set level table {desired_set_type_name} to workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -132,7 +139,8 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
         members = members_for_each_set[i]
         try:
             fill_in_entity_members(ns, ws, etype=desired_set_type_name, ename=set_uuid,
-                                   member_entity_type=member_entity_type, members=members, operation=operation)
+                                   member_entity_type=member_entity_type, members=members, operation=operation,
+                                   max_attempts=max_attempts)
         except FireCloudServerError:
             logger.error(f"Failed to upload membership information for {set_uuid}")
             raise
@@ -165,7 +173,8 @@ def format_set_table_ready_for_upload(set_table: pd.DataFrame,
 def fill_in_entity_members(ns: str, ws: str,
                            etype: str, ename: str,
                            member_entity_type: str, members: List[str],
-                           operation: MembersOperationType) -> None:
+                           operation: MembersOperationType,
+                           max_attempts: int = 2) -> None:
     """
     For a given entity set identified by etype and ename, fill-in it's members
 
@@ -177,11 +186,13 @@ def fill_in_entity_members(ns: str, ws: str,
     :param member_entity_type:
     :param members: list of member uuids
     :param operation: whether to override or append to existing membership list
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
 
     operations = list()
-    response = fapi.get_entity(ns, ws, etype, ename)
+    response = retry_fiss_api_call('get_entity', max_attempts,
+                                   ns, ws, etype, ename)
     if not response.ok:
         logger.error(f"Error occurred while trying to fill in entity members to {etype} {ename}. Make sure it exists.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -202,8 +213,8 @@ def fill_in_entity_members(ns: str, ws: str,
                 operations.append({
                     "op": "RemoveListMember",
                     "attributeListName": f"{member_entity_type}s",
-                    "removeMember": {"entityType":f"{member_entity_type}",
-                                     "entityName":f"{member_id}"}
+                    "removeMember": {"entityType": f"{member_entity_type}",
+                                     "entityName": f"{member_id}"}
                 })
             members_to_upload = members
 
@@ -211,15 +222,16 @@ def fill_in_entity_members(ns: str, ws: str,
         operations.append({
             "op": "AddListMember",
             "attributeListName": f"{member_entity_type}s",
-            "newMember": {"entityType":f"{member_entity_type}",
-                          "entityName":f"{member_id}"}
+            "newMember": {"entityType": f"{member_entity_type}",
+                          "entityName": f"{member_id}"}
         })
     logger.debug(operations)
 
-    response = fapi.update_entity(ns, ws,
-                                  etype=etype,
-                                  ename=ename,
-                                  updates=operations)
+    response = retry_fiss_api_call('update_entity', max_attempts,
+                                   ns, ws,
+                                   etype=etype,
+                                   ename=ename,
+                                   updates=operations)
     if not response.ok:
         logger.error(f"Error occurred while trying to fill in entity members to {etype} {ename}."
                      f"Tentative {member_entity_type} members: {members}")
@@ -229,7 +241,8 @@ def fill_in_entity_members(ns: str, ws: str,
 def add_one_set(ns: str, ws: str,
                 etype: str, ename: str,
                 member_type: str, members: List[str],
-                attributes: dict or None) -> None:
+                attributes: dict or None,
+                max_attempts: int = 2) -> None:
     """
     To support adding a new set.
     :param ns: namespace
@@ -239,18 +252,22 @@ def add_one_set(ns: str, ws: str,
     :param member_type: members' type, must exist
     :param members: list of members, must exist
     :param attributes: attributes to add for this set
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
 
     one_row_bare_bone = pd.DataFrame.from_dict({etype: ename, member_type: members}, orient='index').transpose()
-    upload_set_table(ns, ws, one_row_bare_bone, etype, etype, member_type, member_type, MembersOperationType.RESET)
+    upload_set_table(ns, ws, one_row_bare_bone, etype, etype, member_type, member_type, MembersOperationType.RESET,
+                     max_attempts)
 
     if attributes:
         for k, v in attributes.items():
-            new_or_overwrite_attribute(ns, ws, etype, ename, attribute_name=k, attribute_value=v)
+            new_or_overwrite_attribute(ns, ws, etype, ename, attribute_name=k, attribute_value=v,
+                                       max_attempts=max_attempts)
 
 
-def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str) -> pd.DataFrame:
+def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str,
+                                        max_attempts: int = 2) -> pd.DataFrame:
     """
     Intended to be used when some columns of an existing set level table are to be edited.
     See add_or_drop_columns_to_existing_set_table() for example
@@ -258,10 +275,15 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
     :param ws:
     :param etype:
     :param member_column_name:
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
     # fetch and keep all attributes in original table
-    response = fapi.get_entities(ns, ws, etype=etype)
+    response = retry_fiss_api_call('get_entities', max_attempts,
+                                   ns, ws, etype=etype)
+    if not response.ok:
+        logger.error(f"Error occurred while fetching table {etype} from {ns}/{ws}.")
+        raise FireCloudServerError(response.status_code, response.text)
 
     entities = pd.Series([e.get('name') for e in response.json()], name=etype)
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
@@ -273,7 +295,8 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
     return pd.concat([entities, attributes], axis=1)
 
 
-def _add_or_drop_columns_to_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str) -> None:
+def _add_or_drop_columns_to_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str,
+                                               max_attempts: int = 2) -> None:
     """
     An example (so please don't run) scenario to use fetch_and_format_existing_set_table.
     :param ns:
@@ -283,7 +306,8 @@ def _add_or_drop_columns_to_existing_set_table(ns: str, ws: str, etype: str, mem
     :return:
     """
 
-    formatted_original_table = fetch_and_format_existing_set_table(ns, ws, etype, member_column_name)
+    formatted_original_table = fetch_and_format_existing_set_table(ns, ws, etype, member_column_name,
+                                                                   max_attempts)
 
     # an example: do something here, add, drop, batch-modify existing columns
     identities = formatted_original_table.iloc[:, 1].apply(lambda s: s)
@@ -294,7 +318,8 @@ def _add_or_drop_columns_to_existing_set_table(ns: str, ws: str, etype: str, mem
     upload_set_table(ns, ws, updated_table,
                      current_set_type_name=etype, desired_set_type_name=etype,
                      current_membership_col_name=member_column_name, desired_membership_col_name=member_column_name,
-                     operation=MembersOperationType.RESET)
+                     operation=MembersOperationType.RESET,
+                     max_attempts=max_attempts)
 
 
 def _resolve_member_type(membership_col_name: str) -> str:
@@ -313,7 +338,8 @@ def transfer_set_table(namespace: str,
                        original_set_type: str, membership_col_name: str,
                        desired_new_set_type_name: str,
                        columns_to_keep: List[str] = None,
-                       columns_that_are_lists: List[str] = None) -> None:
+                       columns_that_are_lists: List[str] = None,
+                       max_attempts: int = 2) -> None:
     """
     Transfer set-level table from one workspace to another workspace.
 
@@ -332,6 +358,7 @@ def transfer_set_table(namespace: str,
     :param desired_new_set_type_name:
     :param columns_to_keep:
     :param columns_that_are_lists: name of the columns where entries are lists rather than simple types
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
 
@@ -339,7 +366,8 @@ def transfer_set_table(namespace: str,
         logger.warning("Only membership column will be transferred")
 
     original_table = fetch_and_format_existing_set_table(namespace, original_workspace,
-                                                         original_set_type, membership_col_name)
+                                                         original_set_type, membership_col_name,
+                                                         max_attempts)
 
     columns_to_transfer = [original_set_type, membership_col_name]
     if columns_to_keep is not None and len(columns_to_keep) > 0:
@@ -348,12 +376,14 @@ def transfer_set_table(namespace: str,
 
     upload_set_table(namespace, new_workspace, table_to_transfer,
                      original_set_type, desired_new_set_type_name,
-                     membership_col_name, membership_col_name, MembersOperationType.RESET)
+                     membership_col_name, membership_col_name, MembersOperationType.RESET,
+                     max_attempts)
 
 
 ########################################################################################################################
 def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
                                attribute_name: str, attribute_value,
+                               max_attempts: int = 2,
                                dry_run: bool = False) -> None:
     """
     Add a new, or overwrite existing value of an attribute to a given entity, with the given value.
@@ -364,12 +394,14 @@ def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
     :param ename: entity uuid
     :param attribute_name:
     :param attribute_value:
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :param dry_run: safe measure, you may want to see the command before actually committing the action.
     """
     if attribute_value is None:
         raise ValueError("Attribute value is none")
 
-    response = fapi.get_entity(ns, ws, etype, ename)
+    response = retry_fiss_api_call('get_entity', max_attempts,
+                                   ns, ws, etype, ename)
     if not response.ok:
         logger.error(f"Are you sure {etype} {ename} exists in {ns}/{ws}?")
         raise FireCloudServerError(response.status_code, response.text)
@@ -382,10 +414,8 @@ def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
         print(operations)
         return
 
-    response = fapi.update_entity(ns, ws,
-                                  etype=etype,
-                                  ename=ename,
-                                  updates=operations)
+    response = retry_fiss_api_call('update_entity', max_attempts,
+                                   ns, ws, etype=etype, ename=ename, updates=operations)
     if not response.ok:
         logger.error(f"Failed to update attribute {attribute_name} to {attribute_value}, for {etype} {ename}.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -393,6 +423,7 @@ def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
 
 def delete_attribute(ns: str, ws: str, etype: str, ename: str,
                      attribute_name: str,
+                     max_attempts: int = 2,
                      dry_run: bool = False) -> None:
     """
     Delete a requested attribute of the requested entity.
@@ -402,10 +433,12 @@ def delete_attribute(ns: str, ws: str, etype: str, ename: str,
     :param etype: entity type
     :param ename: entity uuid
     :param attribute_name: name of the attribute to delete
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :param dry_run: safe measure, you may want to see the command before actually committing the action.
     """
 
-    response = fapi.get_entity(ns, ws, etype, ename)
+    response = retry_fiss_api_call('get_entity', max_attempts,
+                                   ns, ws, etype, ename)
     if not response.ok:
         logger.error(f"Are you sure {etype} {ename} exists in {ns}/{ws}?")
         raise FireCloudServerError(response.status_code, response.text)
@@ -416,11 +449,8 @@ def delete_attribute(ns: str, ws: str, etype: str, ename: str,
     if dry_run:
         print(operations)
         return
-
-    response = fapi.update_entity(ns, ws,
-                                  etype=etype,
-                                  ename=ename,
-                                  updates=operations)
+    response = retry_fiss_api_call('update_entity', max_attempts,
+                                   ns, ws, etype=etype, ename=ename, updates=operations)
     if not response.ok:
         logger.error(f"Failed to remove attribute {attribute_name} from {etype} {ename}.")
         raise FireCloudServerError(response.status_code, response.text)
@@ -430,6 +460,7 @@ def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
                                      attribute_name: str,
                                      storage_client: storage.Client,
                                      error_on_nonexistent: bool = True,
+                                     max_attempts: int = 2,
                                      dry_run: bool = False) -> None:
     """
     Delete a requested attribute of the requested entity. And if it's a cloud storage, delete the associate file.
@@ -444,17 +475,21 @@ def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
     :param ename: entity uuid
     :param attribute_name: name of the attribute to delete
     :param storage_client:
+    :param error_on_nonexistent: if the file pointed to by the value in the table doesn't exist, should error or not
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :param dry_run: safe measure, you may want to see the command before actually committing the action.
     """
 
-    df = fetch_existing_root_table(ns, ws, etype)  # it doesn't matter if it's a root type or not
+    # it doesn't matter if it's a root type or not
+    df = fetch_existing_root_table(ns, ws, etype, max_attempts=max_attempts)
     row = df.loc[df.iloc[:, 0] == ename, :]
     assert len(row) == 1, f"Requested entity {ename} of type {etype} either doesn't exist, or has multiple entries"
-    attr = row[attribute_name].iloc[0]
-    assert isinstance(attr, str), f"The requested attribute ({attribute_name}) is not a path-type.\n{attr}"
-    assert attr.startswith('gs://'), f"The requested attribute ({attribute_name}) is not a storage path.\n{attr}"
 
-    delete_attribute(ns, ws, etype, ename, attribute_name, dry_run)
+    attr = str(df.loc[df.iloc[:, 0] == ename, attribute_name])
+    assert isinstance(attr, str), f"The requested attribute ({attribute_name}) is not a path-type."
+    assert attr.startswith('gs://'), f"The requested attribute ({attribute_name}) is not a storage path."
+
+    delete_attribute(ns, ws, etype, ename, attribute_name, max_attempts, dry_run)
     if not dry_run:
         GcsPath(attr).delete(storage_client, recursive=True, error_on_nonexistent=error_on_nonexistent)
 
@@ -463,7 +498,8 @@ def update_one_list_attribute(ns: str, ws: str,
                               etype: str, ename: str,
                               attribute_name: str,
                               attribute_values: List[str],
-                              operation: MembersOperationType) -> None:
+                              operation: MembersOperationType,
+                              max_attempts: int = 2) -> None:
     """
     To create an attribute, which must be a list of reference to something else, of the requested entity.
 
@@ -476,26 +512,53 @@ def update_one_list_attribute(ns: str, ws: str,
     :param ws: workspace
     :param etype: entity type
     :param ename: entity uuid
-    :param attribute_name: name the the attribute
+    :param attribute_name: name of the attribute
     :param attribute_values: a list of target to reference to
     :param operation:
+    :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
-    operations = list()
-    response = fapi.get_entity(ns, ws, etype, ename)
+    response = retry_fiss_api_call('get_entity', max_attempts,
+                                   ns, ws, etype, ename)
     if not response.ok:
         logger.error(f"Entity {etype} {ename} doesn't seem to exist in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
 
-    attributes = response.json().get('attributes')
-    if attribute_name not in attributes:  # attribute need to be created
+    operations = _compile_member_update_operations(attribute_name, attribute_values, operation,
+                                                   response.json().get('attributes'))
+
+    response = retry_fiss_api_call('update_entity', max_attempts,
+                                   ns, ws,
+                                   etype=etype,
+                                   ename=ename,
+                                   updates=operations)
+    if not response.ok:
+        logger.error(f"Failed to update a list of references for {etype} {ename}:\n"
+                     f" attribute {attribute_name},\n"
+                     f" attribute values {attribute_values}")
+        raise FireCloudServerError(response.status_code, response.text)
+
+
+def _compile_member_update_operations(attribute_name: str, attribute_values: List[str],
+                                      operation: MembersOperationType,
+                                      existing_attributes: dict) -> list:
+    """
+    compile the Firecloud operations json to update the member list of an entity
+    :param attribute_name:
+    :param attribute_values:
+    :param operation:
+    :param existing_attributes:
+    :return:
+    """
+    operations = list()
+    if attribute_name not in existing_attributes:  # attribute need to be created
         operations.append({
             "op": "CreateAttributeValueList",
             "attributeName": attribute_name
         })
         values_to_upload = attribute_values
     else:
-        existing_values = [v for v in attributes[attribute_name]['items']]
+        existing_values = [v for v in existing_attributes[attribute_name]['items']]
         logger.debug(existing_values)
         if operation == MembersOperationType.MERGE:
             values_to_upload = list(set(attribute_values) - set(existing_values))
@@ -507,7 +570,6 @@ def update_one_list_attribute(ns: str, ws: str,
                     "removeMember": val
                 })
             values_to_upload = attribute_values
-
     for val in values_to_upload:
         operations.append({
             "op": "AddListMember",
@@ -515,16 +577,7 @@ def update_one_list_attribute(ns: str, ws: str,
             "newMember": val
         })
         logger.debug(operations)
-
-    response = fapi.update_entity(ns, ws,
-                                  etype=etype,
-                                  ename=ename,
-                                  updates=operations)
-    if not response.ok:
-        logger.error(f"Failed to update a list of references for {etype} {ename}:\n"
-                     f" attribute {attribute_name},\n"
-                     f" attribute values {attribute_values}")
-        raise FireCloudServerError(response.status_code, response.text)
+    return operations
 
 
 ########################################################################################################################
