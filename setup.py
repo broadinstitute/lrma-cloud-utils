@@ -5,6 +5,9 @@ from setuptools import find_packages, setup
 with open('requirements.txt', 'r') as fh:
     to_be_installed = [l.rstrip('\n') for l in fh.readlines()]
 
+with open('test-requirements.txt', 'r') as fh:
+    test_dev_install = [l.rstrip('\n') for l in fh.readlines()]
+
 version = "0.0.1"
 setup(
     name="lrmaCUX",
@@ -19,7 +22,7 @@ setup(
 
     python_requires=">=3.7",
     install_requires=to_be_installed,
-    tests_require=["coverage", "pytest"],
+    tests_require=test_dev_install,
 
     packages=find_packages(
         where="src",
@@ -37,5 +40,6 @@ setup(
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
 )
