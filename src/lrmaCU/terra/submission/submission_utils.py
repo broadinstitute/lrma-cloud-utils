@@ -203,11 +203,17 @@ def _update_config_dict(old_config: dict, new_config: dict) -> dict:
 
 
 def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str], use_callcache: bool,
+                         delete_intermediate_output_files: bool=False,
+                         use_reference_disks: bool=False, memory_retry_multiplier: float=0,
+                         workflow_failure_mode:str="", user_comment: str="",
                          batch_type_name: str = None, expression: str = None,
                          days_back: int = None, count: int = None, force: bool = False,
                          max_attempts: int = 2) -> None:
     """
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
+
+    We strongly recommend using keyword argument when calling this function.
+    (Because when Terra/FISS provides new interfaces, we may decide to update this function's interface too).
 
     One can also specify, for entities that fail to be analyzed with the requested workflow repeatedly,
     whether to go ahead or not, as one may want to manually checkout what's wrong there.
@@ -248,7 +254,12 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                                            config=workflow_name,
                                            entity=e,
                                            etype=etype,
-                                           use_callcache=use_callcache)
+                                           use_callcache=use_callcache,
+                                           delete_intermediate_output_files=delete_intermediate_output_files,
+                                           use_reference_disks=use_reference_disks,
+                                           memory_retry_multiplier=memory_retry_multiplier,
+                                           workflow_failure_mode=workflow_failure_mode,
+                                           user_comment=user_comment)
             if response.ok:
                 logger.info(f"Submitted {etype} {e} submitted for analysis with {workflow_name}.")
             else:
