@@ -42,7 +42,8 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
                            new_input_names_and_values: dict = None,
                            existing_input_names_but_new_values: dict = None,
                            new_branch: str = None,
-                           max_attempts: int = 2) -> dict:
+                           max_attempts: int = 2,
+                           restore_config_on_error: bool = True) -> dict:
     """
     Supporting common—but currently limited—scenarios where one wants to update a config of a workflow.
 
@@ -71,6 +72,7 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     :param new_input_names_and_values: when one wants to re-configure some input values, and/or add new input values
     :param existing_input_names_but_new_values: input names exist, but take on new value
     :param new_branch: when one wants to switch to a different branch, where supposedly the workflow is updated.
+    :param restore_config_on_error: when the new config is invalid, restore to the old config or not
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return: current config before the update
     """
@@ -116,6 +118,24 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
         raise FireCloudServerError(response.status_code, response.text)
 
     # validate, but unsure how reliable this is
+    if not is_workflow_config_valid(ns, ws, workflow_name, max_attempts):
+        if restore_config_on_error:
+            restore_workflow_config(ns, ws, workflow_name, current_config, max_attempts=2)
+        raise ValueError(f"After updating the config for {workflow_name} in {ns}/{ws}, it's config is no longer valid.")
+
+    return current_config
+
+
+def is_workflow_config_valid(ns: str, ws: str, workflow_name: str,
+                             max_attempts: int = 2) -> bool:
+    """
+    Basic check on if a workflow's config on Terra is valid or not.
+    :param ns:
+    :param ws:
+    :param workflow_name:
+    :param max_attempts:
+    :return:
+    """
     response = retry_fiss_api_call('validate_config', max_attempts,
                                    ns, ws, ns, workflow_name)
     if not response.ok:
@@ -123,7 +143,12 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
                      f" Manual intervention needed.")
         raise FireCloudServerError(response.status_code, response.text)
 
-    return current_config
+    invalid_config = False
+    for k in ['extraInputs', 'invalidInputs', 'invalidOutputs']:
+        if 0 != len(response.json()[k]):
+            invalid_config = True
+            break
+    return invalid_config
 
 
 def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: dict,
@@ -211,6 +236,10 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
+
+    if not is_workflow_config_valid(ns, ws, workflow_name, max_attempts):
+        raise ValueError(f"Validation of config for {workflow_name} in {ns}/{ws} failed.")
+
     if 1 == len(enames) or expression is None:
         failures = dict()
         for e in _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count, force, max_attempts):
