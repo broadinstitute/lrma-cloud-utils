@@ -169,6 +169,7 @@ def fill_in_entity_members(ns: str, ws: str,
                            etype: str, ename: str,
                            member_entity_type: str, members: List[str],
                            operation: MembersOperationType,
+                           member_col_name_override: str = None,
                            max_attempts: int = 2) -> None:
     """
     For a given entity set identified by etype and ename, fill-in it's members
@@ -192,22 +193,24 @@ def fill_in_entity_members(ns: str, ws: str,
         logger.error(f"Error occurred while trying to fill in entity members to {etype} {ename}. Make sure it exists.")
         raise FireCloudServerError(response.status_code, response.text)
 
+    member_col_name = f'{member_entity_type}s' if member_col_name_override is None else member_col_name_override
+
     attributes = response.json().get('attributes')
-    if f'{member_entity_type}s' not in attributes:
+    if member_col_name not in attributes:
         operations.append({
             "op": "CreateAttributeEntityReferenceList",
-            "attributeListName": f"{member_entity_type}s"
+            "attributeListName": member_col_name
         })
         members_to_upload = members
     else:
-        old_members = [e['entityName'] for e in attributes[f'{member_entity_type}s']['items']]
+        old_members = [e['entityName'] for e in attributes[member_col_name]['items']]
         if operation == MembersOperationType.MERGE:
             members_to_upload = list(set(members) - set(old_members))
         else:
             for member_id in old_members:
                 operations.append({
                     "op": "RemoveListMember",
-                    "attributeListName": f"{member_entity_type}s",
+                    "attributeListName": member_col_name,
                     "removeMember": {"entityType": f"{member_entity_type}",
                                      "entityName": f"{member_id}"}
                 })
@@ -216,7 +219,7 @@ def fill_in_entity_members(ns: str, ws: str,
     for member_id in members_to_upload:
         operations.append({
             "op": "AddListMember",
-            "attributeListName": f"{member_entity_type}s",
+            "attributeListName": member_col_name,
             "newMember": {"entityType": f"{member_entity_type}",
                           "entityName": f"{member_id}"}
         })
