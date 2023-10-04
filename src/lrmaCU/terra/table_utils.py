@@ -27,7 +27,7 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
 
     :param ns:
     :param ws:
-    :param etype: e.g. 'flowcell`
+    :param etype: e.g. 'flowcell'
     :param list_type_attributes: a list of attribute names,
                                  where each of them is assumed to be an attribute that holds a list as value;
                                  Missing values will be parsed into an empty list.
@@ -182,11 +182,11 @@ def fill_in_entity_members(ns: str, ws: str,
     :param member_entity_type:
     :param members: list of member uuids
     :param operation: whether to override or append to existing membership list
+    :param member_col_name_override: on Terra, the name of the column holding the references to members
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
 
-    operations = list()
     response = retry_fiss_api_call('get_entity', max_attempts,
                                    ns, ws, etype, ename)
     if not response.ok:
@@ -195,15 +195,17 @@ def fill_in_entity_members(ns: str, ws: str,
 
     member_col_name = f'{member_entity_type}s' if member_col_name_override is None else member_col_name_override
 
-    attributes = response.json().get('attributes')
-    if member_col_name not in attributes:
+    existing_attributes = response.json().get('attributes')
+
+    operations = list()
+    if member_col_name not in existing_attributes:
         operations.append({
             "op": "CreateAttributeEntityReferenceList",
             "attributeListName": member_col_name
         })
         members_to_upload = members
     else:
-        old_members = [e['entityName'] for e in attributes[member_col_name]['items']]
+        old_members = [e['entityName'] for e in existing_attributes[member_col_name]['items']]
         if operation == MembersOperationType.MERGE:
             members_to_upload = list(set(members) - set(old_members))
         else:
@@ -499,92 +501,6 @@ def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
     delete_attribute(ns, ws, etype, ename, attribute_name, max_attempts, dry_run)
     if not dry_run:
         GcsPath(attr).delete(storage_client, recursive=True, error_on_nonexistent=error_on_nonexistent)
-
-
-def update_one_list_attribute(ns: str, ws: str,
-                              etype: str, ename: str,
-                              attribute_name: str,
-                              attribute_values: List[str],
-                              operation: MembersOperationType,
-                              max_attempts: int = 2) -> None:
-    """
-    To create an attribute, which must be a list of reference to something else, of the requested entity.
-
-    Example of reference:
-        1) reference to member entities
-        2) reference to member entities' attribute
-    Whatever the list elements refer to, the targets must exist.
-
-    :param ns: namespace
-    :param ws: workspace
-    :param etype: entity type
-    :param ename: entity uuid
-    :param attribute_name: name of the attribute
-    :param attribute_values: a list of target to reference to
-    :param operation:
-    :param max_attempts: for retrying when seeing connection reset by peer error
-    :return:
-    """
-    response = retry_fiss_api_call('get_entity', max_attempts,
-                                   ns, ws, etype, ename)
-    if not response.ok:
-        logger.error(f"Entity {etype} {ename} doesn't seem to exist in workspace {ns}/{ws}.")
-        raise FireCloudServerError(response.status_code, response.text)
-
-    operations = _compile_member_update_operations(attribute_name, attribute_values, operation,
-                                                   response.json().get('attributes'))
-
-    response = retry_fiss_api_call('update_entity', max_attempts,
-                                   ns, ws,
-                                   etype=etype,
-                                   ename=ename,
-                                   updates=operations)
-    if not response.ok:
-        logger.error(f"Failed to update a list of references for {etype} {ename}:\n"
-                     f" attribute {attribute_name},\n"
-                     f" attribute values {attribute_values}")
-        raise FireCloudServerError(response.status_code, response.text)
-
-
-def _compile_member_update_operations(attribute_name: str, attribute_values: List[str],
-                                      operation: MembersOperationType,
-                                      existing_attributes: dict) -> list:
-    """
-    compile the Firecloud operations json to update the member list of an entity
-    :param attribute_name:
-    :param attribute_values:
-    :param operation:
-    :param existing_attributes:
-    :return:
-    """
-    operations = list()
-    if attribute_name not in existing_attributes:  # attribute need to be created
-        operations.append({
-            "op": "CreateAttributeValueList",
-            "attributeName": attribute_name
-        })
-        values_to_upload = attribute_values
-    else:
-        existing_values = [v for v in existing_attributes[attribute_name]['items']]
-        logger.debug(existing_values)
-        if operation == MembersOperationType.MERGE:
-            values_to_upload = list(set(attribute_values) - set(existing_values))
-        else:
-            for val in existing_values:
-                operations.append({
-                    "op": "RemoveListMember",
-                    "attributeListName": attribute_name,
-                    "removeMember": val
-                })
-            values_to_upload = attribute_values
-    for val in values_to_upload:
-        operations.append({
-            "op": "AddListMember",
-            "attributeListName": attribute_name,
-            "newMember": val
-        })
-        logger.debug(operations)
-    return operations
 
 
 ########################################################################################################################
