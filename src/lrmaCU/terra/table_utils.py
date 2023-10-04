@@ -1,3 +1,4 @@
+import copy
 import datetime
 import re
 from enum import Enum
@@ -119,7 +120,7 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
     """
 
     formatted_set_table, members_for_each_set = \
-        format_set_table_ready_for_upload(table, current_set_type_name, desired_set_type_name,
+        format_set_table_ready_for_upload(copy.deepcopy(table), current_set_type_name, desired_set_type_name,
                                           current_membership_col_name)
 
     # upload set table, except membership column
