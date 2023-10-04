@@ -86,6 +86,30 @@ def upload_root_table(ns: str, ws: str, table: pd.DataFrame,
         raise FireCloudServerError(response.status_code, response.text)
 
 
+def correct_simple_map_attribute_format(ns: str, ws: str, table_name: str,
+                                        map_attributes: List[str],
+                                        max_attempts: int = 2) -> None:
+    """
+    To correct the formatting issue on Terra tables' Map attributes:
+    sometimes they are formatted as string as opposed to JSON.
+    """
+    def _correct_format(row: pd.Series):
+        # etype = re.sub('_id$', '', re.sub('^entity:', '', row.index[0]))
+        ename = row[0]
+        for attr in map_attributes:
+            dd = row[attr]
+            if not isinstance(dd, dict):
+                raise ValueError(str(row))
+            reformated_dd = dd.copy()
+            for k, v in reformated_dd.items():
+                if isinstance(v, float) and str(v) == 'nan':
+                    reformated_dd[k] = 'na'
+            new_or_overwrite_attribute(ns, ws,
+                                       etype=table_name, ename=ename,
+                                       attribute_name=attr, attribute_value=reformated_dd)
+    terra_table = fetch_existing_root_table(ns, ws, table_name, max_attempts=max_attempts)
+    terra_table.apply(_correct_format, axis=1)
+
 ########################################################################################################################
 class MembersOperationType(Enum):
     RESET = 1  # remove old members and fill with new members
