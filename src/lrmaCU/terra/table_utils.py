@@ -20,7 +20,6 @@ ROOT_LEVEL_TABLE = 'The table in a workspace that represents the smallest analyz
 ########################################################################################################################
 def fetch_existing_root_table(ns: str, ws: str, etype: str,
                               list_type_attributes: List[str] = None,
-                              list_attribute_compact_str_delimiter: str = ',',
                               max_attempts: int = 2) \
         -> pd.DataFrame:
     """
@@ -31,12 +30,9 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
     :param etype: e.g. 'flowcell`
     :param list_type_attributes: a list of attribute names,
                                  where each of them is assumed to be an attribute that holds a list as value;
-                                 each list of will be compacted into a string, using the provided delimiter.
-                                 Missing values will be parsed into 'nan'.
+                                 Missing values will be parsed into an empty list.
                                  Note that this cannot be list of references to other entities in the workspace,
                                  i.e. members for a set type, for that, use `fetch_and_format_existing_set_table`
-    :param list_attribute_compact_str_delimiter: for an attribute that is a list, the list is compacted into a string,
-                                 delimited by the provided delimiter
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return: DataFrame where the first column is named as what you see as the table name on Terra
     """
@@ -49,14 +45,12 @@ def fetch_existing_root_table(ns: str, ws: str, etype: str,
     if 0 == len(response.json()):
         raise KeyError(f"The entity type you requested ({etype}) doesn't exist in {ns}/{ws}")
 
+    # get columns 2+
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
-    delim = list_attribute_compact_str_delimiter
     if list_type_attributes is not None:
-        for attr in list_type_attributes:
-            attributes[attr] = \
-                attributes[attr].apply(lambda x:
-                                       'nan' if pd.isna(x) else delim.join([str(e) for e in x['items']]))
+        attributes = _format_list_type_column(attributes, list_type_attributes)
 
+    # get the ID column right
     entities = [e.get('name') for e in response.json()]
     entity_type = [e.get('entityType') for e in response.json()][0]
     attributes.insert(0, column=entity_type, value=entities)
@@ -81,7 +75,7 @@ def upload_root_table(ns: str, ws: str, table: pd.DataFrame,
                        f"We'll assume the 1st column ({table.columns[0]}) is how you want to name the table.\n"
                        f"This means, if you intend to append to an existing table, whose name isn't the same as the 1st"
                        f"column of this input table, it WILL NOT be appended. "
-                       f"It may be appened to the wrong table by accident, or create another table.",)
+                       f"It may be appened to the wrong table by accident, or create another table.", )
     response = retry_fiss_api_call('upload_entities', max_attempts,
                                    namespace=ns,
                                    workspace=ws,
@@ -268,6 +262,7 @@ def add_one_set(ns: str, ws: str,
 
 
 def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str,
+                                        list_type_attributes: List[str] = None,
                                         max_attempts: int = 2) -> pd.DataFrame:
     """
     Intended to be used when some columns of an existing set level table are to be edited.
@@ -276,6 +271,9 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
     :param ws:
     :param etype:
     :param member_column_name:
+    :param list_type_attributes: a list of attribute names,
+                                 where each of them is assumed to be an attribute that holds a list as value;
+                                 Missing values will be parsed into an empty list.
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return:
     """
@@ -288,6 +286,10 @@ def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_col
 
     entities = pd.Series([e.get('name') for e in response.json()], name=etype)
     attributes = pd.DataFrame([e.get('attributes') for e in response.json()]).sort_index(axis=1)
+
+    # re-format the columns where values are simple lists
+    if list_type_attributes is not None:
+        attributes = _format_list_type_column(attributes, list_type_attributes)
 
     # re-format the membership column, otherwise uploading will cause problems
     x = attributes[member_column_name].apply(lambda d: [e.get('entityName') for e in d.get('items')])
@@ -308,7 +310,7 @@ def _add_or_drop_columns_to_existing_set_table(ns: str, ws: str, etype: str, mem
     """
 
     formatted_original_table = fetch_and_format_existing_set_table(ns, ws, etype, member_column_name,
-                                                                   max_attempts)
+                                                                   max_attempts=max_attempts)
 
     # an example: do something here, add, drop, batch-modify existing columns
     identities = formatted_original_table.iloc[:, 1].apply(lambda s: s)
@@ -368,7 +370,8 @@ def transfer_set_table(namespace: str,
 
     original_table = fetch_and_format_existing_set_table(namespace, original_workspace,
                                                          original_set_type, membership_col_name,
-                                                         max_attempts)
+                                                         list_type_attributes=columns_that_are_lists,
+                                                         max_attempts=max_attempts)
 
     columns_to_transfer = [original_set_type, membership_col_name]
     if columns_to_keep is not None and len(columns_to_keep) > 0:
@@ -407,8 +410,8 @@ def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
         logger.error(f"Are you sure {etype} {ename} exists in {ns}/{ws}?")
         raise FireCloudServerError(response.status_code, response.text)
 
-    cov = {"op":                 "AddUpdateAttribute",
-           "attributeName":      attribute_name,
+    cov = {"op": "AddUpdateAttribute",
+           "attributeName": attribute_name,
            "addUpdateAttribute": attribute_value}
     operations = [cov]
     if dry_run:
@@ -444,8 +447,8 @@ def delete_attribute(ns: str, ws: str, etype: str, ename: str,
         logger.error(f"Are you sure {etype} {ename} exists in {ns}/{ws}?")
         raise FireCloudServerError(response.status_code, response.text)
 
-    action = {"op":                 "RemoveAttribute",
-              "attributeName":      attribute_name}
+    action = {"op": "RemoveAttribute",
+              "attributeName": attribute_name}
     operations = [action]
     if dry_run:
         print(operations)
@@ -592,7 +595,8 @@ def _format_list_type_column(table: pd.DataFrame, list_type_attributes: List[str
     """
     formatted = table.copy(deep=True)
     for attr in list_type_attributes:
-        formatted[attr] = table[attr].apply(lambda d: d['items'])
+        formatted[attr] = \
+            table[attr].apply(lambda d: list() if isinstance(d, float) or pd.isna(d) else d['items'])
     return formatted
 
 

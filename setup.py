@@ -8,7 +8,7 @@ with open('requirements.txt', 'r') as fh:
 with open('test-requirements.txt', 'r') as fh:
     test_dev_install = [l.rstrip('\n') for l in fh.readlines()]
 
-version = "0.0.1"
+version = "0.0.2"
 setup(
     name="lrmaCUX",
     version=version,
