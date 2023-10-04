@@ -1,8 +1,6 @@
 # lrmaCU 
 A python library for interacting with GCS, Cromwell, and Terra.
 
-Current version: 0.0.1
-
 The repo is organized into two main components, `src` and `notebooks`.
 
 `src` holds code for the core library, named `lrmaCU`, providing functions for
