@@ -1,10 +1,13 @@
+import base64
 import logging
 import os
 from typing import List
 
 import requests
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, From, To, Subject, PlainTextContent, HtmlContent
+from sendgrid.helpers.mail import (Attachment, FileContent, FileName, FileType, Disposition, ContentId)
+from sendgrid.helpers.mail import From as SGFrom, To as SGTo, Subject as SGSubject
+from sendgrid.helpers.mail import Mail, PlainTextContent, HtmlContent
 
 ########################################################################################################################
 logger = logging.getLogger(__name__)
@@ -87,6 +90,91 @@ def send_notification(notification_sender_name: str,
                       html_body: str = None) -> None:
     """
     Sending notification email to (potentially) multiple recipients.
+    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+
+    Provide html_body at your own risk.
+
+    Shameless copy from
+    https://github.com/sendgrid/sendgrid-python/blob/main/examples/helpers/mail_example.py#L9
+    :return:
+    """
+    if len(notification_receiver_emails) != len(notification_receiver_names):
+        raise ValueError("Different number of recipients and recipients' emails")
+
+    sg = SendGridAPIClient(api_key=os.environ.get('SENDGRID_API_KEY'))
+
+    email_core = _construct_sendgrid_mail_core(notification_sender_name, email_subject, email_body, html_body)
+
+    # send
+    failed_responses = list()
+    from copy import deepcopy
+    for i in range(len(notification_receiver_emails)):
+        message = deepcopy(email_core)
+        message.add_to(SGTo(notification_receiver_emails[i], notification_receiver_names[i]))
+        response = sg.client.mail.send.post(request_body=message.get())
+        if 202 != response.status_code:
+            failed_responses.append(i)
+    if 0 < len(failed_responses):
+        failures = '  \n'.join([notification_receiver_names[i]+':'+notification_receiver_emails[i]
+                                for i in failed_responses])
+        logger.warning(f"Failed to send message to some receivers: \n  {failures}")
+
+
+def send_notification_with_attachments(notification_sender_name: str,
+                                       notification_receiver_names: List[str], notification_receiver_emails: List[str],
+                                       email_subject: str, email_body: str,
+                                       html_body: str = None,
+                                       txt_names_and_contents: list = None,
+                                       tsv_names_and_dataframe: list = None,
+                                       pdf_names_and_paths: list = None
+                                       ) -> None:
+    """
+    Sending notification email to (potentially) multiple recipients.
+    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+
+    Provide html_body at your own risk.
+
+    Shameless copy from
+    https://github.com/sendgrid/sendgrid-python/blob/main/examples/helpers/mail_example.py#L9
+    :return:
+    """
+    if len(notification_receiver_emails) != len(notification_receiver_names):
+        raise ValueError("Different number of recipients and recipients' emails")
+
+    sg = SendGridAPIClient(api_key=os.environ.get('SENDGRID_API_KEY'))
+
+    email_core = _construct_sendgrid_mail_core(notification_sender_name, email_subject, email_body, html_body)
+
+    # attach
+    if 0 != len(txt_names_and_contents) + len(tsv_names_and_dataframe) + len(pdf_names_and_paths):
+        attachments = _attach_files_to_mail(txt_names_and_contents, tsv_names_and_dataframe, pdf_names_and_paths)
+        for a in attachments:
+            email_core.add_attachment(a)
+
+    # send
+    failed_responses = list()
+    from copy import deepcopy
+    for i in range(len(notification_receiver_emails)):
+        message = deepcopy(email_core)
+        message.add_to(SGTo(notification_receiver_emails[i], notification_receiver_names[i]))
+        response = sg.client.mail.send.post(request_body=message.get())
+        if 202 != response.status_code:
+            failed_responses.append(i)
+    if 0 < len(failed_responses):
+        failures = '  \n'.join([notification_receiver_names[i]+':'+notification_receiver_emails[i]
+                                for i in failed_responses])
+        logger.warning(f"Failed to send message to some receivers: \n  {failures}")
+
+
+def _construct_sendgrid_mail_core(notification_sender_name: str,
+                                  email_subject: str,
+                                  email_body: str,
+                                  html_body: str = None) -> Mail:
+
+    """
+    Construct core content of notification email to (potentially) multiple recipients.
+    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+    The returned Mail object DOES NOT specify recipients, caller should customize that.
 
     Provide html_body at your own risk.
 
@@ -95,27 +183,77 @@ def send_notification(notification_sender_name: str,
     :return:
     """
 
+    # arg validation
     assert "SENDGRID_API_KEY" in os.environ, \
         'environment variable SENDGRID_API_KEY is needed.'
     assert "SENDER_EMAIL" in os.environ, \
         'environment variable SENDER_EMAIL is needed.'
 
-    if len(notification_receiver_emails) != len(notification_receiver_names):
-        raise ValueError("Different number of recipients and recipients' emails")
-
-    sg = SendGridAPIClient(api_key=os.environ.get('SENDGRID_API_KEY'))
+    # construct core
     notification_sender_email = os.environ.get('SENDER_EMAIL')
-    failed_responses = list()
-    for i in range(len(notification_receiver_emails)):
-        message = Mail(from_email=From(notification_sender_email, notification_sender_name),
-                       to_emails=To(notification_receiver_emails[i], notification_receiver_names[i]),
-                       subject=Subject(email_subject),
-                       plain_text_content=PlainTextContent(email_body),
-                       html_content=HtmlContent(html_body) if html_body else None)
-        response = sg.client.mail.send.post(request_body=message.get())
-        if 202 != response.status_code:
-            failed_responses.append(i)
-    if 0 < len(failed_responses):
-        failures = '\n'.join([notification_receiver_names[i]+':'+notification_receiver_emails[i]
-                              for i in failed_responses])
-        logger.warning(f"Failed to send message to some receivers: {failures}")
+    email_core = Mail(from_email=SGFrom(notification_sender_email, notification_sender_name),
+                      subject=SGSubject(email_subject),
+                      plain_text_content=PlainTextContent(email_body),
+                      html_content=HtmlContent(html_body) if html_body else None,
+                      is_multiple=True)  # recipients won't see each other
+    return email_core
+
+
+def _attach_files_to_mail(txt_names_and_contents: list = None,
+                          tsv_names_and_dataframe: list = None,
+                          pdf_names_and_paths: list = None) -> list:
+    """
+    Return a list of SendGrid Attachments for fixing to the email core.
+
+    :param txt_names_and_contents: list of tuple2 (file name, file content)
+    :param tsv_names_and_dataframe: list of tuple2 (file name, file content)
+    :param pdf_names_and_paths: list of tuple2 (file name, file content)
+    :return:
+    """
+    if txt_names_and_contents is None and tsv_names_and_dataframe is None and pdf_names_and_paths is None:
+        raise ValueError("No valid inputs for building attachments")
+
+    attachments = list()
+
+    # txt
+    if txt_names_and_contents is not None:
+        for attachment_txt_name, contents in txt_names_and_contents:
+            base64_txt = \
+                base64.b64encode(('\n'.join(contents)).encode('utf-8')).decode('utf-8')
+            txt_attachment = Attachment(
+                FileContent(base64_txt),
+                FileName(attachment_txt_name),
+                FileType('text/plain'),
+                Disposition('attachment'),
+                ContentId(attachment_txt_name)
+            )
+            attachments.append(txt_attachment)
+    # tsv
+    if tsv_names_and_dataframe is not None:
+        for attachment_tsv_name, attachment_dataframe in tsv_names_and_dataframe:
+            base64_csv = \
+                base64.b64encode(attachment_dataframe.to_csv(header=True, index=False, sep='\t').encode()).decode()
+            tsv_attachment = Attachment(
+                FileContent(base64_csv),
+                FileName(attachment_tsv_name),
+                FileType('text/csv'),
+                Disposition('attachment'),
+                ContentId('dataframe')
+            )
+            attachments.append(tsv_attachment)
+    # pdf
+    if pdf_names_and_paths is not None:
+        for attachment_pdf_name, attachment_pdf_path in pdf_names_and_paths:
+            with open(attachment_pdf_path, 'rb') as f:
+                data = f.read()
+            pdf_content = base64.b64encode(data).decode()
+
+            pdf_attachment = Attachment(
+                FileContent(pdf_content),
+                FileName(attachment_pdf_name),
+                FileType('application/pdf'),
+                Disposition('attachment')
+            )
+            attachments.append(pdf_attachment)
+
+    return attachments
