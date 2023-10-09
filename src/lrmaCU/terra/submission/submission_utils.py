@@ -9,6 +9,7 @@ from dateutil import parser
 from firecloud.errors import FireCloudServerError
 
 from lrmaCU.terra.table_utils import add_one_set
+from lrmaCU.terra.workspace_utils import get_workspace_bucket
 from lrmaCU.utils import retry_fiss_api_call
 
 ########################################################################################################################
@@ -144,8 +145,9 @@ def is_workflow_config_valid(ns: str, ws: str, workflow_name: str,
         raise FireCloudServerError(response.status_code, response.text)
 
     invalid_config = False
+    jes = response.json()
     for k in ['extraInputs', 'invalidInputs', 'invalidOutputs', 'missingInputs']:
-        if 0 != len(response.json()[k]):
+        if 0 != len(jes[k]):
             invalid_config = True
             break
     return invalid_config
@@ -300,6 +302,77 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                          f" to workspace {ns}/{ws} with workflow {workflow_name}.")
             raise FireCloudServerError(response.status_code, response.text)
         logger.info(f"Submitted {etype}s {enames} for analysis with {workflow_name} in a batch.")
+
+
+def custom_submission_without_root_entity(ns: str, ws: str, workflow_name: str,
+                                          use_callcache: bool,
+                                          delete_intermediate_output_files: bool = False,
+                                          use_reference_disks: bool = False,
+                                          memory_retry_multiplier: float = 0,
+                                          workflow_failure_mode:str = "",
+                                          user_comment: str = "",
+                                          max_attempts: int = 2):
+
+    response = retry_fiss_api_call('create_submission', max_attempts,
+                                   wnamespace=ns, workspace=ws, cnamespace=ns, config=workflow_name,
+                                   entity=None, etype=None, expression=None,
+                                   use_callcache=use_callcache,
+                                   delete_intermediate_output_files=delete_intermediate_output_files,
+                                   use_reference_disks=use_reference_disks,
+                                   memory_retry_multiplier=memory_retry_multiplier,
+                                   workflow_failure_mode=workflow_failure_mode,
+                                   user_comment=user_comment)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code,
+                                   f"Failed to submit for a workflow {workflow_name} that doesn't have root-entity.")
+
+
+def delete_workspace_submission_folders(ns: str, ws: str,
+                                        cleanup_workflow_name: str,
+                                        submissions_id_to_delete: List[str],
+                                        use_callcache: bool,
+                                        delete_intermediate_output_files: bool = False,
+                                        use_reference_disks: bool = False,
+                                        memory_retry_multiplier: float = 0,
+                                        workflow_failure_mode:str = "",
+                                        user_comment: str = "",
+                                        max_attempts: int = 2) -> None:
+
+    """
+    Delete a workspace's submissions sub-folders for the provided submission IDs.
+
+    :param ns:
+    :param ws:
+    :param cleanup_workflow_name: the name of the cleanup workflow in the workspace, e.g. "CleanupIntermediate" for
+            https://github.com/broadinstitute/long-read-pipelines/blob/main/wdl/pipelines/TechAgnostic/Utility/CleanupIntermediate.wdl
+    :param submissions_id_to_delete:
+    :param use_callcache:
+    :param delete_intermediate_output_files:
+    :param use_reference_disks:
+    :param memory_retry_multiplier:
+    :param workflow_failure_mode:
+    :param user_comment:
+    :param max_attempts:
+    :return:
+    """
+
+    # this re-formatting is critical for Terra to understand
+    to_delete = "[\"" + '\",\"'.join(submissions_id_to_delete) + "\"]"
+
+    change_workflow_config(ns, ws,
+                           workflow_name=cleanup_workflow_name,
+                           existing_input_names_but_new_values={f'{cleanup_workflow_name}.submissionIDs': to_delete},
+                           max_attempts=max_attempts)
+
+    custom_submission_without_root_entity(ns, ws,
+                                          workflow_name=cleanup_workflow_name,
+                                          use_callcache=use_callcache,
+                                          delete_intermediate_output_files=delete_intermediate_output_files,
+                                          use_reference_disks=use_reference_disks,
+                                          memory_retry_multiplier=memory_retry_multiplier,
+                                          workflow_failure_mode=workflow_failure_mode,
+                                          user_comment=user_comment,
+                                          max_attempts=max_attempts)
 
 
 # GET-like #############################################################################################################
