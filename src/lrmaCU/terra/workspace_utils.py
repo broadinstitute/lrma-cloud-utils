@@ -1,3 +1,7 @@
+import datetime
+
+import gcsfs
+from dateutil import parser
 from firecloud.errors import FireCloudServerError
 
 from lrmaCU.utils import *
@@ -94,3 +98,60 @@ def _query_workspace(ns, ws, max_attempts: int = 2):
         logger.error(f"Failed to query workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
     return response.json()['workspace']
+
+
+########################################################################################################################
+def get_workspace_submissions_old_enough(ns: str, ws: str, days_back: int,
+                                         max_attempts: int = 2) -> list:
+    """
+    Get submissions in a workspace that's old enough (older than the days_back arg)
+    :param ns:
+    :param ws:
+    :param days_back: workflows submitted earlier than this date will be included in the returned submission IDs
+    :param max_attempts:
+    :return: a list of submission ids
+    """
+
+    response = retry_fiss_api_call('list_submissions', max_attempts,
+                                   ns, ws)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+
+    cut_off = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=days_back)
+
+    def is_old(dd: dict):
+        return parser.parse(dd['submissionDate']) < cut_off and 'Done' == dd['status']
+    old_enough = filter(is_old, response.json())
+
+    return sorted(list(old_enough), key=lambda dd: dd['submissionDate'])
+
+
+def get_submission_ids_to_delete(ns: str, ws: str, days_back: int,
+                                 submissions_to_skip: List[str],
+                                 max_attempts: int = 2) -> List[str]:
+    """
+    Get a list of submissions IDs in a workspace whose submission folders can be deleted ,
+    where the submission was created over "days_back" days ago, and not included in "submissions_to_skip".
+
+    :param ns:
+    :param ws:
+    :param days_back:
+    :param submissions_to_skip:
+    :param max_attempts:
+    :return:
+    """
+
+    workspace_bucket = get_workspace_bucket(ns, ws, max_attempts)
+
+    # get existing folders
+    terra_bucket_fs = gcsfs.GCSFileSystem()
+    existing_folders = [fd.split('/')[-1] for fd in terra_bucket_fs.ls(f"{workspace_bucket}/submissions/")]
+
+    # get submissions old enough
+    x = get_workspace_submissions_old_enough(ns, ws, days_back=days_back)
+    y = list(map(lambda d: d['submissionId'], x))
+
+    # intermediate folder still exists && old enough && not on whitelist
+    z = [sub for sub in y
+         if (sub in existing_folders) and (sub not in submissions_to_skip)]
+    return z
