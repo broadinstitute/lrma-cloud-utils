@@ -144,13 +144,13 @@ def is_workflow_config_valid(ns: str, ws: str, workflow_name: str,
                      f" Manual intervention needed.")
         raise FireCloudServerError(response.status_code, response.text)
 
-    invalid_config = False
+    config_is_valid = True
     jes = response.json()
     for k in ['extraInputs', 'invalidInputs', 'invalidOutputs', 'missingInputs']:
         if 0 != len(jes[k]):
-            invalid_config = True
+            config_is_valid = False
             break
-    return invalid_config
+    return config_is_valid
 
 
 def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: dict,
