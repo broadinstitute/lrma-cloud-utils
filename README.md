@@ -17,7 +17,7 @@ The repo is organized into two main components, `src` and `notebooks`.
 Two options:
 
   * clone this repo and `pip install .`
-  * install from git directly, optionally specifying a branch
+  * install from git directly, optionally specifying a commit/branch/tag
 
     ```bash
     python3 -m pip install --upgrade \
