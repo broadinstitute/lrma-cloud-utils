@@ -3,6 +3,7 @@ import datetime
 import gcsfs
 from dateutil import parser
 from firecloud.errors import FireCloudServerError
+from tqdm.auto import tqdm
 
 from lrmaCU.utils import *
 
@@ -155,3 +156,91 @@ def get_submission_ids_to_delete(ns: str, ws: str, days_back: int,
     z = [sub for sub in y
          if (sub in existing_folders) and (sub not in submissions_to_skip)]
     return z
+
+
+########################################################################################################################
+def compute_cost_this_month(ns: str, ws: str, user_account: str = None) -> float:
+    month_beg = parser.parse(f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-01T00:00:00.000Z")
+    return compute_cost_between_dates(ns, ws,
+                                      month_beg, datetime.datetime.now(),
+                                      user_account)
+
+
+def compute_cost_this_year(ns: str, ws: str, user_account: str = None) -> float:
+    year_beg = parser.parse(f"{datetime.datetime.now().year}-01-01T00:00:00.000Z")
+    return compute_cost_between_dates(ns, ws,
+                                      year_beg, datetime.datetime.now(),
+                                      user_account)
+
+
+def compute_cost_between_dates(ns: str, ws: str,
+                               earlier_cutoff: datetime.datetime,
+                               later_cutoff: datetime.datetime,
+                               user_account: str = None) -> float:
+    """
+    Return WDL-related compute cost accrued for a workspace during the specified cutoff timestamps.
+
+    This uses the cost reported on Terra, but has intrinsic inaccuracies.
+    For example: because workflows take time to run, workflows launched at the end of last month—assuming
+    you're interested in the cost for the current month—will not be included, even though they'll
+    be billed in the current month by cloud service provider.
+    Another example is for workflows finished shortly before this query.
+    Because it takes up to 48 hours before all costs are reported back by the cloud service provided,
+    these workflows' cost will not be included.
+
+    Hence, consider the number returned as a reasonably good estimate, but not 100% accurate.
+    """
+
+    response = retry_fiss_api_call('list_submissions', 2,
+                                   namespace=ns, workspace=ws)
+    if not response.ok:
+        logger.error(f"Failed to retrieve list of submissions in {ns}/{ws}.")
+        raise FireCloudServerError(response.status_code, response.text)
+
+    sorted_subs = sorted(response.json(), key=lambda sub: parser.parse(sub['submissionDate']))
+
+    # filter by user account, if requested
+    if user_account:
+        relevant_subs = _filter_sub_by_submitter(sorted_subs, user_account)
+    else:
+        relevant_subs = sorted_subs
+
+    # filter by timestamps
+    subs_filtered_by_timestamp = _filter_sub_by_timestamp(relevant_subs, earlier_cutoff, later_cutoff)
+
+    tqdm.pandas()
+    cost = 0.0
+    for sub in tqdm(subs_filtered_by_timestamp):
+        response = retry_fiss_api_call('get_submission', 2,
+                                       namespace=ns, workspace=ws,
+                                       submission_id=sub['submissionId'])
+        if not response.ok:
+            logger.error(f"FISS request for submission {sub['submissionId']} failed repeatedly.")
+            raise FireCloudServerError(response.status_code, response.text)
+        cost += response.json()['cost']
+
+    logger.info(f"For the month {datetime.datetime.now().strftime('%B')} of {datetime.datetime.now().year},"
+                f" a total of {len(relevant_subs)} WDL submissions have costed you ${cost} so far for"
+                f" {ns}/{ws} ")
+    return cost
+
+
+def _filter_sub_by_submitter(subs: List[dict], submitter_account: str) -> list:
+    return [sub for sub in subs if submitter_account == sub['submitter']]
+
+
+def _filter_sub_by_timestamp(submissions: List[dict],
+                             earlier_cutoff: datetime.datetime,
+                             later_cutoff: datetime.datetime) -> list:
+
+    """
+    Filter submissions in the provided list of submissions by submission date.
+    Note that UTC time is used on Terra for submission timestamps.
+    If the cutoff timestamps provided are not in UTC, provide timestamp_tz.
+    :param submissions: list of submissions to filter on
+    :param earlier_cutoff: (inclusive) submissions no earlier than this timestamp will be retained
+    :param later_cutoff: (inclusive) submissions no later than this timestamp will be retained
+    :return:
+    """
+    return [sub for sub in submissions
+            if earlier_cutoff <= parser.parse(sub['submissionDate']) <= later_cutoff]

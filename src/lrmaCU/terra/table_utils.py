@@ -110,6 +110,7 @@ def correct_simple_map_attribute_format(ns: str, ws: str, table_name: str,
     terra_table = fetch_existing_root_table(ns, ws, table_name, max_attempts=max_attempts)
     terra_table.apply(_correct_format, axis=1)
 
+
 ########################################################################################################################
 class MembersOperationType(Enum):
     RESET = 1  # remove old members and fill with new members
@@ -526,6 +527,26 @@ def delete_attribute_and_remove_file(ns: str, ws: str, etype: str, ename: str,
     if not dry_run:
         GcsPath(attr).delete(storage_client, recursive=True, error_on_nonexistent=error_on_nonexistent)
 
+
+def attribute_is_not_available(loaded_terra_table: pd.DataFrame,
+                               attribute: str) -> pd.Series:
+    """
+    For checking which entities doesn't have the attribute-of-interest yet.
+
+    Throws KeyError if the attribute-of-interest isn't in the table's columns at all.
+    """
+    column: pd.Series = loaded_terra_table[attribute]
+
+    idx_1 = column.isna()
+
+    def more_nuanced(v) -> bool:
+        if isinstance(v, float):
+            return np.isnan(v)
+        else:
+            return str(v).lower() in ('', 'nan', 'na')
+    idx_2 = column.apply(more_nuanced)
+
+    return idx_1 | idx_2
 
 ########################################################################################################################
 def _format_list_type_column(table: pd.DataFrame, list_type_attributes: List[str]) -> pd.DataFrame:
