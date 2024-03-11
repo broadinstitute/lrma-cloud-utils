@@ -48,6 +48,7 @@ def absolute_file_paths(directory):
             yield os.path.abspath(os.path.join(dir_path, f))
 
 
+########################################################################################################################
 def retry_fiss_api_call(func_name: str, max_attempts: int, *args, **kwargs) -> requests.Response:
     """
     Re-try calling FISS API function for ConnectionResetError.
@@ -64,10 +65,11 @@ def retry_fiss_api_call(func_name: str, max_attempts: int, *args, **kwargs) -> r
     connection_reset = True
     while max_attempts != cnt and connection_reset:
         try:
-            connection_reset = False  # avoid unnecessary re-tries
             # call FISS API function by its name
             fiss_call = getattr(fapi, func_name)
             response = fiss_call(*args, **kwargs)
+            if 200 == response.status_code:
+                connection_reset = False
         except SocketError as e:  # but only retries for connect reset errors
             if e.errno != errno.ECONNRESET:
                 logger.warning(f"Seeing error other than ConnectionRest during {cnt}-th attempt.")
@@ -84,13 +86,14 @@ def retry_fiss_api_call(func_name: str, max_attempts: int, *args, **kwargs) -> r
     return response
 
 
+########################################################################################################################
 def send_notification(notification_sender_name: str,
                       notification_receiver_names: List[str], notification_receiver_emails: List[str],
                       email_subject: str, email_body: str,
                       html_body: str = None) -> None:
     """
     Sending notification email to (potentially) multiple recipients.
-    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+    Note that this assumes two environment variables are set appropriately: "SENDGRID_API_KEY" & "SENDER_EMAIL".
 
     Provide html_body at your own risk.
 
@@ -130,7 +133,7 @@ def send_notification_with_attachments(notification_sender_name: str,
                                        ) -> None:
     """
     Sending notification email to (potentially) multiple recipients.
-    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+    Note that this assumes two environment variables are set appropriately: "SENDGRID_API_KEY" & "SENDER_EMAIL".
 
     Provide html_body at your own risk.
 
@@ -146,10 +149,9 @@ def send_notification_with_attachments(notification_sender_name: str,
     email_core = _construct_sendgrid_mail_core(notification_sender_name, email_subject, email_body, html_body)
 
     # attach
-    if 0 != len(txt_names_and_contents) + len(tsv_names_and_dataframe) + len(pdf_names_and_paths):
-        attachments = _attach_files_to_mail(txt_names_and_contents, tsv_names_and_dataframe, pdf_names_and_paths)
-        for a in attachments:
-            email_core.add_attachment(a)
+    attachments = _attach_files_to_mail(txt_names_and_contents, tsv_names_and_dataframe, pdf_names_and_paths)
+    for a in attachments:
+        email_core.add_attachment(a)
 
     # send
     failed_responses = list()
@@ -173,7 +175,7 @@ def _construct_sendgrid_mail_core(notification_sender_name: str,
 
     """
     Construct core content of notification email to (potentially) multiple recipients.
-    Note that this assumes two environment variables are set appropriately, "SENDGRID_API_KEY" & "SENDER_EMAIL".
+    Note that this assumes two environment variables are set appropriately: "SENDGRID_API_KEY" & "SENDER_EMAIL".
     The returned Mail object DOES NOT specify recipients, caller should customize that.
 
     Provide html_body at your own risk.
@@ -203,15 +205,21 @@ def _attach_files_to_mail(txt_names_and_contents: list = None,
                           tsv_names_and_dataframe: list = None,
                           pdf_names_and_paths: list = None) -> list:
     """
-    Return a list of SendGrid Attachments for fixing to the email core.
+    Return a list of SendGrid Attachments for attaching to the email core.
 
     :param txt_names_and_contents: list of tuple2 (file name, file content)
     :param tsv_names_and_dataframe: list of tuple2 (file name, file content)
     :param pdf_names_and_paths: list of tuple2 (file name, file content)
     :return:
     """
-    if txt_names_and_contents is None and tsv_names_and_dataframe is None and pdf_names_and_paths is None:
-        raise ValueError("No valid inputs for building attachments")
+
+    has_something_to_attach = False
+    for a in [txt_names_and_contents, tsv_names_and_dataframe, pdf_names_and_paths]:
+        if a is not None and 0 != len(a):
+            has_something_to_attach = True
+            break
+
+    assert has_something_to_attach, "No valid inputs for building attachments"
 
     attachments = list()
 

@@ -206,12 +206,15 @@ def verify_before_submit(ns: str, ws: str,
                          method_name: str,
                          etype: str, enames: List[str],
                          batch_type_name: str = None, expression: str = None,
+                         days_back: int = None, count: int = None,
+                         force: bool = False,
+                         max_attempts: int = 2,
                          use_callcache: bool=True,
                          delete_intermediate_output_files: bool=False,
-                         use_reference_disks: bool=False, memory_retry_multiplier: float=0,
-                         workflow_failure_mode:str="", user_comment: str="",
-                         days_back: int = None, count: int = None, force: bool = False,
-                         max_attempts: int = 2) -> dict or None:
+                         use_reference_disks: bool=False,
+                         memory_retry_multiplier: float=0,
+                         workflow_failure_mode:str="", user_comment: str=""
+                         ) -> dict or None:
     """
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
 
@@ -234,7 +237,6 @@ def verify_before_submit(ns: str, ws: str,
     :param method_name:
     :param etype:
     :param enames:
-    :param use_callcache:
     :param batch_type_name: type name of the resulting set, when batch submission mode is turned on
     :param expression: if not None, will submit all entities given in enames in one batch
                        Note that this will create a dummy set, for the purpose of batch submission.
@@ -243,6 +245,7 @@ def verify_before_submit(ns: str, ws: str,
     :param force: if True, forcefully launch analysis on every entity provided except those being analyzed at the moment
                   by skipping the check if the entity has been successfully analyzed, or caused repeated failures
     :param max_attempts: for retrying when seeing connection reset by peer error
+    :param use_callcache: args like this are forwarded to FISS
     :return: failures as a dictionary, where the keys are entities that failed to launch methods on, and
                                              the values are responses from FireCloud API
     """
@@ -665,6 +668,44 @@ def _analyzable_entities(ns: str, ws: str, method_config: str, etype: str, ename
                   by skipping the check if the entity has been successfully analyzed, or caused repeated failures
     :param max_attempts: for retrying when seeing connection reset by peer error
     :return: list of running jobs (as dict's) optionally filtered
+    """
+
+    """
+    THIS IS OVERALL A FILTER OPERATION
+    
+        first,  get all the entities touched by that workflow, 
+        second, take away that those that are currently being analyzed
+        third,  if user requests force analysis, early return
+        fourth, keep input entities that have not been touched by the workflow at all
+        last,   take away those that are repeatedly failed to be analyzed by this
+    
+    It relays to functions for doing its job.
+    
+        get_entities_analyzed_by_method_config() -> [get_submissions_for_method_config(), 
+                                                     _collect_entities_and_statuses()]
+            return a list of EntityStatuses 
+            (length equals the number of entities touched by the method_config)
+            it simply relays to two other functions
+            
+                get_submissions_for_method_config()
+                    leaf function:
+                    returns a list of Json rendering of Terra responses,
+                    length of list is the number of relevant submissions (not workflow)
+            
+                _collect_entities_and_statuses() -> get_entities_in_a_submission()
+                    iterates through each submission (returned by get_submissions_for_method_config())
+                    and for each submission, gather/update an entity's status
+                    returns a list of EntityStatuses
+                    (length equals the number of entities touched by the method_config)
+                
+                        get_entities_in_a_submission()
+                            leaf function:
+                            returns each entity's name, and the time its status was last updated
+                            the entities are grouped by their respective workflow status
+        
+        get_repeatedly_failed_entities() -> get_entities_analyzed_by_method_config()
+            return entities that **repeatedly** failed to be processed by a particular workflow, 
+            up to a certain time-delta back
     """
 
     entity_statuses = get_entities_analyzed_by_method_config(ns, ws, method_config, PRACTICAL_DAYS_LOOKBACK, etype,
