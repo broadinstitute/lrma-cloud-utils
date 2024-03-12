@@ -162,14 +162,14 @@ def get_submission_ids_to_delete(ns: str, ws: str, days_back: int,
 def compute_cost_this_month(ns: str, ws: str, user_account: str = None) -> float:
     month_beg = parser.parse(f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-01T00:00:00.000Z")
     return compute_cost_between_dates(ns, ws,
-                                      month_beg, datetime.datetime.now(),
+                                      month_beg, datetime.datetime.now(tz=datetime.timezone.utc),
                                       user_account)
 
 
 def compute_cost_this_year(ns: str, ws: str, user_account: str = None) -> float:
     year_beg = parser.parse(f"{datetime.datetime.now().year}-01-01T00:00:00.000Z")
     return compute_cost_between_dates(ns, ws,
-                                      year_beg, datetime.datetime.now(),
+                                      year_beg, datetime.datetime.now(tz=datetime.timezone.utc),
                                       user_account)
 
 
