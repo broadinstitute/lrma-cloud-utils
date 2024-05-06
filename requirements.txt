@@ -5,10 +5,8 @@ google-cloud-storage>=2.16.0
 gcsfs>=2024.3.1
 firecloud>=0.16.37
 
-ipython>=8.24.0
-ipywidgets>=8.1.2
-ipynbname>=2023.2.0.0
-jupyter>=1.0.0
+ipywidgets
+ipynbname
 
 papermill>=2.6.0
 sendgrid>=6.11.0
