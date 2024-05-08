@@ -311,7 +311,7 @@ def backup_workspace(ns: str, ws: str, backup_bucket: str, max_attempts: int = 2
         original_name = notebook_blob.name[notebook_blob.name.find("/") + 1:]
         print(f"\t{original_name}")
         notebook_name = f"{timestamp}_{ns}_{ws}_{original_name}"
-        blob = bucket.copy_blob(notebook_blob, bucket, new_name=f"{backup_folder_path}/notebooks/{notebook_name}")
+        bucket.copy_blob(notebook_blob, bucket, new_name=f"{backup_folder_path}/notebooks/{notebook_name}")
     print("Done.")
 
     # Now store workspace attributes:
@@ -400,6 +400,16 @@ def backup_workspace(ns: str, ws: str, backup_bucket: str, max_attempts: int = 2
 
 
 def _write_json_file_to_bucket(backup_folder_path, bucket, timestamp, namespace, workspace, json_object, file_base_name):
+    """
+    Write a JSON object to a GCS bucket.
+    :param backup_folder_path: The folder path in the bucket to write to.
+    :param bucket: The bucket to write to.
+    :param timestamp: The timestamp of the backup.
+    :param namespace: The namespace of the workspace.
+    :param workspace: The name of the workspace.
+    :param json_object: The JSON object to write.
+    :param file_base_name: The base name of the file to write.
+    """
     # Write our dict to our bucket:
     blob = bucket.blob(f"{backup_folder_path}/{timestamp}_{namespace}_{workspace}_{file_base_name}.json.gz")
     with blob.open('wb') as f:
