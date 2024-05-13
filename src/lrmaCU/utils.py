@@ -60,28 +60,36 @@ def retry_fiss_api_call(func_name: str, max_attempts: int, *args, **kwargs) -> r
     from socket import error as SocketError
     import errno
     from firecloud import api as fapi
-    cnt = 0
+
+    OK_RESPONSE_CODES = {200, 201}
+
+    trial = 1
     response = requests.Response()
-    connection_reset = True
-    while max_attempts != cnt and connection_reset:
+    response_code_ok = False
+    while (not response_code_ok) and (max_attempts >= trial):
         try:
             # call FISS API function by its name
             fiss_call = getattr(fapi, func_name)
             response = fiss_call(*args, **kwargs)
-            if 200 == response.status_code:
-                connection_reset = False
-        except SocketError as e:  # but only retries for connect reset errors
-            if e.errno != errno.ECONNRESET:
-                logger.warning(f"Seeing error other than ConnectionRest during {cnt}-th attempt.")
-                break
+            if response.status_code in OK_RESPONSE_CODES:
+                response_code_ok = True
+                logger.info(f"Seeing FireCloud return with status code {response.status_code}, "
+                            f"during {trial}-th attempt. Response OK? {response.ok}.")
             else:
-                connection_reset = True
-                logger.warning(f"Seeing connection reset error for the {cnt}-th time.")
+                logger.error(f"Seeing FireCloud return with code {response.status_code} other than 200, "
+                             f"during {trial}-th attempt.")
+                break
+        except SocketError as e:  # but only retries for connect reset errors
+            if e.errno == errno.ECONNRESET:
+                logger.warning(f"Seeing connection reset error during {trial}-th attempt.")
+            else:
+                logger.error(f"Seeing error other than ConnectionRest during {trial}-th attempt.")
+                break
         except Exception as ee:  # exit for all other types of errors
-            logger.error(f"Seeing error other than ConnectionRest during {cnt}-th attempt.")
+            logger.error(f"Seeing error other than ConnectionRest during {trial}-th attempt.")
             break
 
-        cnt += 1
+        trial += 1
 
     return response
 
