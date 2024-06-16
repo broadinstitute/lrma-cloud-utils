@@ -454,6 +454,74 @@ def new_or_overwrite_attribute(ns: str, ws: str, etype: str, ename: str,
         logger.error(f"Failed to update attribute {attribute_name} to {attribute_value}, for {etype} {ename}.")
         raise FireCloudServerError(response.status_code, response.text)
 
+def update_list_attribute(ns: str, ws: str, etype: str, ename: str,
+                          attribute_name: str,
+                          list_entries: list,
+                          reset_list: bool,
+                          max_attempts: int = 2,
+                          dry_run: bool = False) -> None:
+    """
+    Create/reset/append to a list-like attribute of an entity.
+
+    :param ns: namespace
+    :param ws: workspace
+    :param etype: entity type
+    :param ename: entity uuid
+    :param attribute_name: if attribute does not exist, will create
+    :param list_entries: entries in the list to be appended/used
+    :param reset_list: if true, will reset the existing list with provided list, otherwise will append;
+                       no effect if the entity doesn't already have the attribute (the attr will be created)
+    :param max_attempts: for retrying when seeing connection reset by peer error
+    :param dry_run: safe measure, you may want to see the command before actually committing the action.
+    """
+    if list_entries is None:
+        raise ValueError("Attribute value is none. If you want to remove this attribute, use delete_attribute instead.")
+    if 0 == len(list_entries):
+        logger.warning("Provided list entry is empty.")
+        if not reset_list:
+            raise ValueError("Provided an empty list while not demanding reset. Most likely this is an error. Check.")
+
+    response = retry_fiss_api_call('get_entity', max_attempts,
+                                   ns, ws, etype, ename)
+    if not response.ok:
+        logger.error(f"Are you sure {etype} {ename} exists in {ns}/{ws}?")
+        raise FireCloudServerError(response.status_code, response.text)
+
+    try:
+        ldf = fetch_existing_root_table(ns, ws, etype,
+                                        list_type_attributes=[attribute_name])
+    except KeyError:  # the attribute doesn't exist
+        ldf = fetch_existing_root_table(ns, ws, etype)
+
+    operations = list()
+    if attribute_name in ldf.columns:
+        if reset_list:
+            op_remove = {"op": "RemoveAttribute",
+                         "attributeName": attribute_name}
+            operations.append(op_remove)
+            op_create_list = {"op": "CreateAttributeValueList",
+                              "attributeName": attribute_name,}
+            operations.append(op_create_list)
+    else:
+        op_create_list = {"op": "CreateAttributeValueList",
+                          "attributeName": attribute_name,}
+        operations.append(op_create_list)
+
+    for e in list_entries:
+        op_append = {"op": "AddListMember",
+                     "attributeListName": attribute_name,
+                     "newMember": e}
+        operations.append(op_append)
+    if dry_run:
+        print(operations)
+        return
+
+    response = retry_fiss_api_call('update_entity', max_attempts,
+                                   ns, ws, etype=etype, ename=ename, updates=operations)
+    if not response.ok:
+        logger.error(f"Failed to update list-like attribute {attribute_name} with {list_entries}, for {etype} {ename}.")
+        raise FireCloudServerError(response.status_code, response.text)
+
 
 def delete_attribute(ns: str, ws: str, etype: str, ename: str,
                      attribute_name: str,
