@@ -8,7 +8,7 @@ with open('requirements.txt', 'r') as fh:
 with open('test-requirements.txt', 'r') as fh:
     test_dev_install = [l.rstrip('\n') for l in fh.readlines()]
 
-version = "0.0.11"
+version = "0.0.12"
 setup(
     name="lrmaCUX",
     version=version,
@@ -20,7 +20,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
 
-    python_requires=">=3.7",
+    python_requires=">=3.9",
     install_requires=to_be_installed,
     tests_require=test_dev_install,
 
@@ -37,9 +37,9 @@ setup(
         "License :: OSI Approved :: BSD 3-Clause",
         "Natural Language :: English",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
 )

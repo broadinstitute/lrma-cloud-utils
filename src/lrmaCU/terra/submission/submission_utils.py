@@ -442,12 +442,20 @@ def get_submissions_for_method_config(ns: str, ws: str, method_config: str, days
 class WorkflowExeStatus(str, Enum):
     """
     Modeling the status of a particular workflow execution.
+    The str values are taken from the Terra UI.
     """
+
+    # transition state
+    QUEUED = 'Queued'
+    SUBMITTED = 'Submitted'
+    LAUNCHING = 'Launching'
+    RUNN = 'Running'
+    ABORTING = 'Aborting'
+
+    # terminal state
     FAIL = 'Failed'
     SUCC = 'Succeeded'
-    RUNN = 'Running'
     ABORTED = 'Aborted'
-    ABORTING = 'Aborting'
 
 
 class EntityStatuses:
@@ -525,6 +533,10 @@ def get_entities_in_a_submission(ns: str, ws: str, submission_id: str,
     aborted = list()
     aborting = list()
     running = list()
+    queued = list()
+    submitted = list()
+    launching = list()
+
     for w in batch_submission_json['workflows']:
         e = w['workflowEntity']['entityName']
         t = parser.parse(w['statusLastChangedDate'])
@@ -539,6 +551,12 @@ def get_entities_in_a_submission(ns: str, ws: str, submission_id: str,
             aborting.append((e, t))
         elif WorkflowExeStatus.RUNN.value == st:
             running.append((e, t))
+        elif WorkflowExeStatus.QUEUED.value == st:
+            queued.append((e, t))
+        elif WorkflowExeStatus.SUBMITTED.value == st:
+            submitted.append((e, t))
+        elif WorkflowExeStatus.LAUNCHING.value == st:
+            launching.append((e, t))
         else:
             raise ValueError(f"Seeing workflow execution status not seen before: {st}. lrmaCUX needs to be updated.")
 
@@ -546,7 +564,10 @@ def get_entities_in_a_submission(ns: str, ws: str, submission_id: str,
             WorkflowExeStatus.FAIL: failure,
             WorkflowExeStatus.ABORTED: aborted,
             WorkflowExeStatus.ABORTING: aborting,
-            WorkflowExeStatus.RUNN: running}
+            WorkflowExeStatus.RUNN: running,
+            WorkflowExeStatus.QUEUED: queued,
+            WorkflowExeStatus.SUBMITTED: submitted,
+            WorkflowExeStatus.LAUNCHING: launching, }
 
 
 # todo: this gather is quite slow, anyway to speed it up?
@@ -632,6 +653,9 @@ def _collect_entities_and_statuses(ns: str, ws: str, method_config: str, etype: 
         update(dd, WorkflowExeStatus.SUCC)
         update(dd, WorkflowExeStatus.FAIL)
         update(dd, WorkflowExeStatus.ABORTED)
+        update(dd, WorkflowExeStatus.QUEUED)
+        update(dd, WorkflowExeStatus.SUBMITTED)
+        update(dd, WorkflowExeStatus.LAUNCHING)
 
     return list( entity_statuses.values() )
 
