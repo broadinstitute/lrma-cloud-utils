@@ -27,3 +27,5 @@ plotly>=5.22.0
 termcolor>=2.4.0
 ansi2html>=1.9.1
 xmltodict>=0.13.0
+
+pysam==0.22.1
